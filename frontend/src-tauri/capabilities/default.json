@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Core permissions for the Trinity desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:default"]
 }

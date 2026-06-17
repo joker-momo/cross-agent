@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, FolderPlus, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Play, Square, FolderPlus, FolderSearch, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { api, API_BASE, AGENTS, Agent, Roles } from "./api";
+
+const IN_TAURI =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 type Phase = "idle" | "running" | "stopped";
 
@@ -56,13 +59,25 @@ export default function App() {
     };
   }, []);
 
-  const addProject = async () => {
+  const registerPath = async (path: string) => {
+    const p = path.trim();
+    if (!p) return;
     setError(null);
     try {
-      const d = await api.addProject(newPath.trim());
+      const d = await api.addProject(p);
       setProjects(d.projects);
       setProject(d.projects[d.projects.length - 1]);
       setNewPath("");
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const browse = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ directory: true, multiple: false });
+      if (typeof picked === "string") await registerPath(picked);
     } catch (e: any) {
       setError(e.message);
     }
@@ -183,8 +198,14 @@ export default function App() {
               placeholder="/path/to/project"
               value={newPath}
               onChange={(e) => setNewPath(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && registerPath(newPath)}
             />
-            <Btn onClick={addProject} disabled={!newPath.trim()}>
+            {IN_TAURI && (
+              <Btn onClick={browse}>
+                <FolderSearch size={15} /> Browse
+              </Btn>
+            )}
+            <Btn onClick={() => registerPath(newPath)} disabled={!newPath.trim()}>
               <FolderPlus size={15} /> Add
             </Btn>
           </div>
