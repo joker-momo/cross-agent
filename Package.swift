@@ -12,12 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Trinity",
-            path: "Sources/Trinity"
-        ),
-        .testTarget(
-            name: "TrinityTests",
-            dependencies: ["Trinity"],
-            path: "Tests/TrinityTests"
+            path: "Sources/Trinity",
+            resources: [
+                .process("Resources")
+            ]
         )
     ]
 )

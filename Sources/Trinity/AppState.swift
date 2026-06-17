@@ -35,6 +35,14 @@ final class AppState: ObservableObject {
         return runManager.runs.first(where: { $0.runId == runId })
     }
 
+    var runReadinessIssue: String? {
+        let selectedAgents = Set([roles.planner, roles.implementer, roles.reviewer])
+        let missing = Agent.allCases.filter { selectedAgents.contains($0) && !health.hasRunnableCLI($0) }
+        guard !missing.isEmpty else { return nil }
+        let names = missing.map { $0.rawValue.capitalized }.joined(separator: ", ")
+        return "Missing runnable CLI for \(names). Account/quota can use the app, but task runs require the CLI on PATH."
+    }
+
     func load() {
         projects = projectStore.listProjects()
         if selectedProject.isEmpty, let first = projects.first {
@@ -74,6 +82,10 @@ final class AppState: ObservableObject {
 
     func startRun() {
         guard !selectedProject.isEmpty, !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        if let runReadinessIssue {
+            error = runReadinessIssue
             return
         }
         error = nil

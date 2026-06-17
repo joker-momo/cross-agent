@@ -1,7 +1,10 @@
 # Trinity — Multi-Agent Orchestrator (Design Spec)
 
 **Date:** 2026-06-17
-**Status:** Approved design, pre-implementation
+**Status:** Historical. The web/Tauri UI and Python backend described here were
+removed; the app is now a **pure Swift** native SwiftUI macOS app. Kept as a
+record of the original orchestration design (roles, loop, guardrails, stop
+reasons) which the Swift app implements.
 **Author:** brainstormed with Claude (Opus 4.8)
 
 ---

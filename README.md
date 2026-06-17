@@ -7,54 +7,50 @@ full-auto until the reviewer approves or it stops with an explicit reason.
 
 Design spec: [`docs/specs/2026-06-17-trinity-orchestrator-design.md`](docs/specs/2026-06-17-trinity-orchestrator-design.md).
 
+Pure Swift. SwiftUI + Swift Package Manager, no other language or runtime: no
+Python backend, no web frontend, no localhost binding, no `uv`/`node`.
+
 ## Layout
 
 ```
-backend/    Python core engine + FastAPI server + CLI (package: trinity)
-frontend/   React + Vite + TS + Tailwind web control center
+Sources/Trinity/  SwiftUI macOS-native app, service layer, agent runner, UI
+Scripts/          Native app packaging helpers
 ```
 
-## Backend
+## Build & run
 
 ```bash
-cd backend
-uv sync
-uv run pytest                 # 41 tests, no live agent calls
-uv run trinity serve          # launches UI at http://127.0.0.1:7777 (auto-opens)
+swift build
+.build/debug/Trinity --self-test    # built-in regression checks
+Scripts/build_app.sh                # package Trinity.app
+open .build/release/Trinity.app
 ```
 
-CLI control path (backup for the UI):
+The app expects users to install whichever agent CLIs they want to use:
+`claude`, `codex`, and/or `agy`.
+
+## Distribution
+
+`Scripts/build_app.sh` builds a **universal** (arm64 + x86_64) `.app` and signs it.
 
 ```bash
-uv run trinity --project /path/to/project "Add OAuth login" \
-  -P claude -I antigravity -R codex --max-iter 5 --escalate-after 2 --dry-run
+Scripts/build_app.sh                       # universal, ad-hoc signed
+ARCHS="arm64" Scripts/build_app.sh         # single-arch (faster, this Mac only)
+SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" Scripts/build_app.sh  # notarizable
 ```
 
-## Frontend
+- **Ad-hoc signed** (default): runs locally; on another Mac the recipient must
+  clear quarantine once — `xattr -dr com.apple.quarantine Trinity.app` (or
+  right-click → Open).
+- **Developer ID** (needs an Apple Developer account): builds with hardened
+  runtime + timestamp, ready to notarize (`xcrun notarytool submit … --wait`
+  then `xcrun stapler staple Trinity.app`) so it opens with no warning anywhere.
+- Universal binary requires the per-arch build path used by the script; the
+  `swift build --arch a --arch b` multi-arch flag needs full Xcode, which the
+  script avoids by building each arch separately and `lipo`-merging.
 
-```bash
-cd frontend
-pnpm install
-pnpm dev      # dev server on :5173, proxies API to :7777
-pnpm build    # outputs frontend/dist, served by `trinity serve`
-```
-
-## Desktop app (Tauri)
-
-Native window that auto-spawns the Python backend on launch and kills it on
-exit. Needs Rust + `uv` on the machine (backend is run as `uv run trinity
-serve`, not frozen).
-
-```bash
-cd frontend
-pnpm install
-pnpm desktop          # dev: launches the Trinity window (spawns backend on :7777)
-pnpm desktop:build    # produces a .app / .dmg under src-tauri/target/release/bundle
-```
-
-The Rust shell (`src-tauri/`) resolves the repo's `backend/` dir at compile
-time and runs the server there; the UI loads from the bundled `dist/` and talks
-to the backend at `http://127.0.0.1:7777`.
+Recipients still install + log in to the agent CLIs (`claude`, `codex`, `agy`)
+themselves; the app spawns them and reads their local credentials.
 
 ## How it works
 

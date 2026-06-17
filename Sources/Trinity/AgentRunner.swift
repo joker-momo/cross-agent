@@ -34,7 +34,7 @@ struct AgentCommandBuilder {
     }
 }
 
-final class AgentRunner {
+final class AgentRunner: @unchecked Sendable {
     private let shell: ShellRunning
 
     init(shell: ShellRunning = Shell()) {
@@ -42,11 +42,18 @@ final class AgentRunner {
     }
 
     func run(agent: Agent, role: Role, prompt: String, cwd: URL, timeout: TimeInterval) async throws -> ProcessResult {
-        let command = AgentCommandBuilder.build(agent: agent, role: role, prompt: prompt)
+        let command = AgentCommandBuilder.build(agent: agent, role: role, prompt: prompt, schemaPath: Self.reviewSchemaPath())
         let result = try await shell.run(command, cwd: cwd, timeout: timeout)
         if !result.ok {
             throw ShellError.nonZero(result)
         }
         return result
+    }
+
+    /// Path to the bundled reviewer verdict schema, or nil if it cannot be
+    /// resolved. Only codex reviewer commands consume it; a nil path degrades
+    /// to the previous (unschema'd) behavior rather than passing a bad flag.
+    static func reviewSchemaPath() -> String? {
+        Bundle.module.url(forResource: "review.schema", withExtension: "json")?.path
     }
 }

@@ -34,5 +34,113 @@
     "related_bugs": [],
     "occurrences": 1,
     "last_seen": "2026-06-17T14:35:34+0700"
+  },
+  {
+    "id": "bug-004",
+    "timestamp": "2026-06-17T14:56:16+0700",
+    "error_message": "Swift test targets failed because XCTest and Swift Testing modules were unavailable in the Command Line Tools environment",
+    "file": "Package.swift",
+    "root_cause": "The active developer directory is Command Line Tools, not full Xcode, so standard Swift test runtime modules were not importable.",
+    "fix": "Removed the SwiftPM test target and added `Trinity --self-test` mode for built-in regression checks.",
+    "tags": ["swift", "testing", "xcode", "command-line-tools"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T14:56:16+0700"
+  },
+  {
+    "id": "bug-005",
+    "timestamp": "2026-06-17T15:16:03+0700",
+    "error_message": "Visual verification capture failed: screencapture returned 'could not create image from display' and osascript was not allowed assistive access",
+    "file": "Sources/Trinity/ContentView.swift",
+    "root_cause": "The shell session cannot capture the current display and lacks macOS Assistive Access permission for System Events, even though the Trinity release app process is running frontmost.",
+    "fix": "Do not treat this as an app regression; verify Swift UI changes with compile, self-test, release bundle launch, and Computer Use app listing unless Accessibility/capture permission is granted.",
+    "tags": ["macos", "verification", "screenshot", "accessibility"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T15:16:03+0700"
+  },
+  {
+    "id": "bug-006",
+    "timestamp": "2026-06-17T16:30:00+0700",
+    "error_message": "Shell.run hangs / deadlocks on agent CLI output larger than the OS pipe buffer (~64KB)",
+    "file": "Sources/Trinity/Shell.swift",
+    "root_cause": "readDataToEndOfFile() was called on both pipes only AFTER process.waitUntilExit(). When the child writes more than the pipe buffer it blocks on write, while the parent blocks on waitUntilExit, deadlocking. Self-tests use a FakeShell so a real Process was never exercised.",
+    "fix": "Extracted a synchronous runSync helper and drained stdout/stderr concurrently on a background queue (DispatchGroup) while the process runs; wait on the group after waitUntilExit. Added 'shell drains large output without deadlock' self-test (200KB payload).",
+    "tags": ["swift", "process", "pipe", "deadlock", "concurrency", "reliability"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T16:30:00+0700"
+  },
+  {
+    "id": "bug-007",
+    "timestamp": "2026-06-17T16:30:00+0700",
+    "error_message": "Codex reviewer ran without --output-schema, so verdict JSON was unconstrained and prone to VerdictParser failures",
+    "file": "Sources/Trinity/AgentRunner.swift",
+    "root_cause": "AgentCommandBuilder.build supported a schemaPath argument (and SelfTests asserted it), but AgentRunner.run never accepted or passed one, so production codex reviewer commands always omitted the schema. The schema also only existed under backend/, never shipped as a Swift resource.",
+    "fix": "Copied review.schema.json into Sources/Trinity/Resources/, added AgentRunner.reviewSchemaPath() resolving it via Bundle.module (nil -> graceful degradation), and passed it through to AgentCommandBuilder.build. Added a self-test asserting the schema resolves and reaches the codex command.",
+    "tags": ["swift", "codex", "reviewer", "schema", "output-quality", "resources"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T16:30:00+0700"
+  },
+  {
+    "id": "bug-008",
+    "timestamp": "2026-06-17T16:30:00+0700",
+    "error_message": "slugify could keep non-ASCII digits in git branch names",
+    "file": "Sources/Trinity/GitService.swift",
+    "root_cause": "Operator precedence: 'char.isASCII && char.isLetter || char.isNumber' parses as '(isASCII && isLetter) || isNumber', so any Unicode digit (e.g. Arabic-Indic) was preserved instead of being replaced with '-'.",
+    "fix": "Parenthesized to 'char.isASCII && (char.isLetter || char.isNumber)'. Added 'git slugify drops non-ascii digits' self-test.",
+    "tags": ["swift", "git", "slugify", "operator-precedence", "branch-safety"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T16:30:00+0700"
+  },
+  {
+    "id": "bug-009",
+    "timestamp": "2026-06-17T17:00:00+0700",
+    "error_message": "Codex quota always blank and codex account showed a GUID instead of email in the status panel",
+    "file": "backend/trinity/health.py, Sources/Trinity/AgentHealth.swift",
+    "root_cause": "Both parsers used a guessed codex schema. Real on-disk data: rate_limits is nested under payload (not top-level), windows are primary/secondary (not primary_window/secondary_window), use window_minutes (not limit_window_seconds) and resets_at (not reset_at). Account email + plan live in the tokens.id_token JWT, not as plain fields; only account_id GUID was read. Unit tests passed because they encoded the same wrong schema.",
+    "fix": "Decode tokens.id_token JWT (base64url) for email + https://api.openai.com/auth.chatgpt_plan_type. Read payload.rate_limits with primary/secondary, window_minutes (>=1440 => weekly), resets_at, plan_type. Fixed in both backend and Swift; rewrote tests to the real schema and added a JWT-decode self-test. Verified live against real ~/.codex on disk.",
+    "tags": ["codex", "quota", "jwt", "schema", "health", "status-panel", "swift", "python"],
+    "related_bugs": ["bug-003", "bug-007"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T17:00:00+0700"
+  },
+  {
+    "id": "bug-010",
+    "timestamp": "2026-06-17T18:30:00+0700",
+    "error_message": "Distributed .app reports every agent CLI as 'missing - not found on PATH' even when installed",
+    "file": "Sources/Trinity/Shell.swift",
+    "root_cause": "A GUI .app launched from Finder inherits only a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin). Shell.which read that PATH and only used its hardcoded fallback when PATH was entirely ABSENT (never, for a GUI app), so Homebrew (/opt/homebrew/bin) and /usr/local/bin were not searched. Worse, AgentRunner spawns `/usr/bin/env <cli>` which resolves via the inherited minimal PATH too, so even a located CLI would fail to exec.",
+    "fix": "Added Shell.augmentedPATH() = current PATH + common install dirs (/opt/homebrew/bin, /usr/local/bin, ~/.local/bin, ~/.bun, ~/.deno, ~/.cargo, etc.), deduped. which() now searches it, and runSync() sets process.environment PATH to it so `env <cli>` resolves. Added a self-test simulating a minimal Finder PATH.",
+    "tags": ["swift", "path", "distribution", "gui-app", "subprocess", "gatekeeper"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T18:30:00+0700"
+  },
+  {
+    "id": "bug-011",
+    "timestamp": "2026-06-17T19:43:38+0700",
+    "error_message": "Agy status showed 'Not installed' even though Antigravity.app was installed/running and live account/quota was available",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/AppState.swift, Sources/Trinity/Shell.swift",
+    "root_cause": "The health model treated Antigravity as installed only when the headless `agy` CLI resolved on PATH. On this machine the ~/.antigravity symlink exists but is broken, while /Applications/Antigravity.app and its language server are available for account/quota. UI conflated app availability with runnable CLI availability.",
+    "fix": "Added Antigravity app detection, a separate `app` status label, an Open button that launches Antigravity, live account/quota display even without CLI, and a run-readiness warning/guard when selected roles require a missing CLI. Also added ~/.antigravity/antigravity/bin to the augmented PATH for installs where the symlink is valid.",
+    "tags": ["swift", "antigravity", "agy", "health", "quota", "cli", "ui"],
+    "related_bugs": ["bug-010"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:43:38+0700"
+  },
+  {
+    "id": "bug-012",
+    "timestamp": "2026-06-17T19:43:38+0700",
+    "error_message": "swift build failed: missing argument for parameter 'format' in PropertyListSerialization.propertyList call",
+    "file": "Sources/Trinity/AgentHealth.swift",
+    "root_cause": "The Antigravity app version reader used `PropertyListSerialization.propertyList(from:)`, but Swift's Foundation API requires `propertyList(from:options:format:)`.",
+    "fix": "Changed the call to `PropertyListSerialization.propertyList(from: data, options: [], format: nil)` and reran swift build/self-tests.",
+    "tags": ["swift", "compile", "plist", "antigravity"],
+    "related_bugs": ["bug-011"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:43:38+0700"
   }
 ]

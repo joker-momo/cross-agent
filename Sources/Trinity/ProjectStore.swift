@@ -1,6 +1,6 @@
 import Foundation
 
-final class ProjectStore {
+final class ProjectStore: @unchecked Sendable {
     private let fileManager: FileManager
     private let projectsFile: URL
 

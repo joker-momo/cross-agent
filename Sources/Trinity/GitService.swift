@@ -17,7 +17,7 @@ enum GitGuardError: LocalizedError, Equatable {
     }
 }
 
-final class GitService {
+final class GitService: @unchecked Sendable {
     private let shell: ShellRunning
     private let protectedBranches = Set(["main", "master"])
 
@@ -86,7 +86,7 @@ final class GitService {
     func slugify(_ text: String, maxLength: Int = 40) -> String {
         let lower = text.lowercased()
         let mapped = lower.map { char -> Character in
-            if char.isASCII && char.isLetter || char.isNumber {
+            if char.isASCII && (char.isLetter || char.isNumber) {
                 return char
             }
             return "-"

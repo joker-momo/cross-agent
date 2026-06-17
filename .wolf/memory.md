@@ -96,3 +96,79 @@ Append one line per significant action:
 | 14:35 | Adapted ai-switcher reference for Codex account/quota status | backend/trinity/health.py, backend/tests/test_health.py | reads Codex auth.json + local session rate_limits; backend tests + frontend build passed | ~ |
 | 14:38 | Verified desktop app build path | frontend/src-tauri/*, backend/, frontend/ | backend tests passed, frontend build passed, Tauri debug app+dmg built; runtime has existing :7777 backend process caveat | ~ |
 | 14:40 | Made account connect/switch button visible in agent status cards | frontend/src/App.tsx | Claude/Codex installed agents now show labelled Connect/Switch button; backend tests, frontend build, Tauri debug build passed | ~ |
+| 14:56 | Started full Swift-native migration | Package.swift, Sources/Trinity/*, Scripts/build_app.sh, README.md | SwiftUI app/service layer created; swift build passed; --self-test passed; release Trinity.app bundle built | ~ |
+| 14:59 | Re-ran Swift-native desktop verification | .build/release/Trinity.app, Sources/Trinity/* | swift build + debug self-test + release app self-test passed; app window launched and showed agent cards/project/task UI | ~ |
+| 15:06 | Added professional app logo/icon to Swift app | Sources/Trinity/Resources/AppIcon.png, Sources/Trinity/ContentView.swift, Scripts/build_app.sh, Package.swift | header logo visible; bundle has TrinityIcon.icns; swift build and self-tests passed | ~ |
+| 15:16 | Redesigned Swift UI toward macOS-native structure | Sources/Trinity/ContentView.swift | NavigationSplitView sidebar/detail, toolbar actions, native GroupBox/List/Form-like controls; swift build and self-tests passed; shell screenshot blocked by macOS capture permissions | ~ |
+| 19:35 | Re-verified macOS-native Swift UI after permissions were granted | Sources/Trinity/ContentView.swift, /tmp/trinity-window-polished.png | Accessibility query and screencapture now work; release app self-test passed; captured final dark-mode window and polished helper text/quota wrapping | ~ |
+| 19:43 | Fixed Antigravity status handling in Swift UI | Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/AppState.swift, Sources/Trinity/Shell.swift | Agy now shows app/account/quota with Open button; missing runnable CLI is warned/guarded; swift build, self-tests, release build/sign, and screenshot passed | ~ |
+
+## Session: 2026-06-17 16:40
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-17 16:41
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 16:44 | Edited Sources/Trinity/Shell.swift | expanded (+19 lines) | ~426 |
+| 16:44 | Edited Sources/Trinity/GitService.swift | inline fix | ~18 |
+| 16:44 | Edited Sources/Trinity/AgentRunner.swift | added optional chaining | ~214 |
+| 16:44 | Edited Sources/Trinity/SelfTests.swift | added optional chaining | ~470 |
+| 16:45 | Edited Sources/Trinity/Shell.swift | modified run() | ~775 |
+| 16:45 | Edited Sources/Trinity/SelfTests.swift | added nullish coalescing | ~133 |
+| 16:45 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~144 |
+| 16:46 | Edited Sources/Trinity/AgentRunner.swift | "review" → "review.schema" | ~23 |
+| 16:?? | fixed 3 latent bugs: Shell pipe deadlock, codex reviewer schema wiring, slugify precedence; added 3 self-tests | Shell.swift, AgentRunner.swift, GitService.swift, SelfTests.swift, Resources/review.schema.json | 9 self-tests + 48 pytest pass | ~ |
+| 16:50 | Edited backend/trinity/health.py | added 1 import(s) | ~47 |
+| 16:50 | Edited backend/trinity/health.py | modified _decode_jwt_claims() | ~969 |
+| 16:50 | Edited backend/tests/test_health.py | modified _fake_id_token() | ~573 |
+| 16:51 | Edited Sources/Trinity/AgentHealth.swift | modified codexAccount() | ~525 |
+| 16:51 | Edited Sources/Trinity/AgentHealth.swift | modified reversed() | ~207 |
+| 16:51 | Edited Sources/Trinity/AgentHealth.swift | modified quota() | ~243 |
+| 16:52 | Edited Sources/Trinity/SelfTests.swift | modified seg() | ~207 |
+| 16:52 | Edited Sources/Trinity/SelfTests.swift | 4→4 lines | ~28 |
+| 17:00 | fixed codex account+quota: decode id_token JWT for email/plan, real payload.rate_limits schema (primary/secondary, window_minutes, resets_at); both backend + Swift | health.py, AgentHealth.swift, test_health.py, SelfTests.swift | verified live on real ~/.codex; 10 self-tests + 48 pytest pass | ~ |
+| 16:56 | Edited backend/trinity/health.py | added 4 import(s) | ~74 |
+| 16:57 | Edited backend/trinity/health.py | modified _claude_account() | ~1711 |
+| 16:57 | Edited backend/tests/test_health.py | modified test_claude_usage_parses_utilization() | ~458 |
+| 16:58 | Edited Sources/Trinity/AgentHealth.swift | added 1 import(s) | ~24 |
+| 16:58 | Edited Sources/Trinity/AgentHealth.swift | modified claudeLiveUsage() | ~162 |
+| 16:58 | Edited Sources/Trinity/AgentHealth.swift | added optional chaining | ~1366 |
+| 16:59 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~237 |
+| 16:59 | Edited Sources/Trinity/SelfTests.swift | 4→4 lines | ~28 |
+| 16:59 | Edited backend/trinity/health.py | carry() → hints() | ~163 |
+| 17:40 | added Claude live quota (api/oauth/usage, keychain token, UA+beta headers, 60s cache, read-only) w/ fallback to hints; backend + Swift parity; ref hoangpm96/ai-switcher | health.py, AgentHealth.swift, test_health.py, SelfTests.swift | 12 self-tests + 52 pytest pass; live unverifiable on this machine (no keychain token) | ~ |
+| 17:55 | removed Python backend/ + entire frontend/ (TS web + Rust Tauri) + stale XCTest files; project now Swift-only native app | backend/*, frontend/*, Tests/* (deleted) | swift build OK, 12 self-tests pass; backend/frontend deps confirmed none in Sources | ~ |
+| 17:05 | Edited README.md | reduced (-44 lines) | ~163 |
+| 17:07 | Edited docs/specs/2026-06-17-trinity-orchestrator-design.md | 5→8 lines | ~93 |
+| 18:10 | pure-Swift cleanup: rewrote README Swift-only, trimmed anatomy backend/frontend, removed obsolete vite learning, added Swift-only pivot to decision log, superseded banner on design spec | README.md, .wolf/anatomy.md, .wolf/cerebrum.md, docs/specs/*.md | build OK, 12 self-tests; 0 residual product-stack refs | ~ |
+| 17:09 | Edited Sources/Trinity/Shell.swift | modified which() | ~440 |
+| 17:10 | Edited Sources/Trinity/Shell.swift | 3→8 lines | ~117 |
+| 17:10 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~154 |
+| 18:30 | fixed distribution PATH bug: GUI .app minimal PATH missed homebrew/usr-local; added Shell.augmentedPATH for which() + spawned env; self-test added | Shell.swift, SelfTests.swift, buglog.json | 13 self-tests pass | ~ |
+| 17:14 | Edited Sources/Trinity/AgentHealth.swift | appendingPathComponent() → claudeConfigDir() | ~52 |
+| 17:14 | Edited Sources/Trinity/AgentHealth.swift | modified claudeConfigDir() | ~175 |
+| 18:50 | claude realtime quota: root cause = this machine `claude auth status` loggedIn:false (managed harness, no keychain token) so live usage endpoint has no bearer; code correct. Added CLAUDE_CONFIG_DIR support; rebuilt .app | AgentHealth.swift | 13 self-tests; realtime needs `claude setup-token` login | ~ |
+| 17:16 | Edited Sources/Trinity/AgentHealth.swift | modified claudeLive() | ~245 |
+| 17:16 | Edited Sources/Trinity/AgentHealth.swift | modified appendNote() | ~512 |
+| 17:20 | Edited Sources/Trinity/AgentHealth.swift | added nullish coalescing | ~1090 |
+| 17:20 | Edited Sources/Trinity/AgentHealth.swift | modified parseClaudeUsage() | ~304 |
+| 17:20 | Edited Sources/Trinity/AgentHealth.swift | modified claudeCredentials() | ~435 |
+| 17:21 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~284 |
+| 19:30 | claude realtime hardening (ref decolua/9router): UI reason when no token, in-memory refresh via v1/oauth/token (clientId 9d1c250a), 429 cooldown 180s, model-specific weekly windows, anthropic-version header, CLAUDE_CONFIG_DIR | AgentHealth.swift, SelfTests.swift | 16 self-tests pass; rebuilt .app | ~ |
+| 17:23 | Edited Scripts/build_app.sh | expanded (+21 lines) | ~356 |
+| 17:23 | Edited Scripts/build_app.sh | expanded (+13 lines) | ~189 |
+| 17:25 | Edited Scripts/build_app.sh | 29→30 lines | ~286 |
+| 17:25 | Edited README.md | expanded (+23 lines) | ~337 |
+| 19:55 | build_app.sh: universal arm64+x86_64 via per-arch swift build + lipo (multi-arch flag needs full Xcode, unavailable); ad-hoc codesign default + SIGN_IDENTITY for Developer ID/notarize; README Distribution section | Scripts/build_app.sh, README.md | universal .app verified (lipo x86_64+arm64), adhoc sign ok, 16 self-tests from packaged binary | ~ |
+| 17:27 | Edited Sources/Trinity/AgentHealth.swift | modified antigravityLive() | ~288 |
+| 17:27 | Edited Sources/Trinity/AgentHealth.swift | added nullish coalescing | ~1547 |
+| 17:27 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~483 |
+| 20:20 | antigravity quota (ref ai-switcher quota.rs): query running IDE language server (ps+lsof for csrf+ports), POST GetUserStatus, parse clientModelConfigs (proto3 missing remainingFraction=exhausted), worst-model summary; UI 'open Antigravity IDE for quota' when closed | AgentHealth.swift, SelfTests.swift | 19 self-tests; can't live-test (IDE closed, agy not installed) | ~ |
+| 17:33 | Edited Sources/Trinity/AgentHealth.swift | modified urlSession() | ~2078 |
+| 17:33 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~303 |
+| 17:34 | Edited Sources/Trinity/AgentHealth.swift | 3→3 lines | ~40 |
+| 21:10 | antigravity transport fix (ref antigravity-usage/AntigravityQuotaWatcher): HTTPS self-signed loopback (URLSession trust delegate for 127.0.0.1) + HTTP fallback on --extension_server_port + X-Codeium-Csrf-Token header + monthly prompt credits; agy token is encrypted in Keychain (unreadable) | AgentHealth.swift, SelfTests.swift | clean build, 20 self-tests, universal .app | ~ |
+| 17:38 | Edited Sources/Trinity/AgentHealth.swift | modified check() | ~712 |
