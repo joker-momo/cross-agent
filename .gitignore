@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Tool runtime state
+.trinity/
+~/.trinity/
+
+# Agent/IDE harness dirs (keep contract files tracked, ignore caches)
+/.codegraph
+/.cursor
+/.serena
+.worktrees/
+/.superpowers
+
+# OpenWolf generated/heavy artifacts (keep protocol + config tracked)
+.wolf/token-ledger.json
+.wolf/cron-state.json
+.wolf/designqc-captures/
+.wolf/designqc-report.json
+.wolf/hooks/_session.json
+
+# Personal Claude Code overrides
+.claude/settings.local.json
+
+# TS incremental build info
+frontend/*.tsbuildinfo
