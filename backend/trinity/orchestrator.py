@@ -109,17 +109,24 @@ class Orchestrator:
             art.append_transcript("[stderr] " + res.stderr)
         return res
 
+    @staticmethod
+    def _agent_err(e: AgentError) -> str:
+        """Surface verbatim stderr alongside the failure (spec §6)."""
+        stderr = (e.result.stderr.strip() if e.result and e.result.stderr
+                  else "")
+        return f"{e}: {stderr}" if stderr else str(e)
+
     # --- main entry ---
     def run(self, project_dir: Path, task: str, roles: Roles,
             run_id: str | None = None) -> RunResult:
         project_dir = Path(project_dir)
         run_id = run_id or new_run_id()
         art = RunArtifacts(project_dir, run_id)
-        art.ensure()
-        art.task_md.write_text(task)
 
         branch: str | None = None
         # --- pre-flight guardrails ---
+        # Run git setup BEFORE writing artifacts: `stash -u` would sweep the
+        # freshly-created untracked .trinity/ dir away otherwise.
         self.git.preflight(project_dir)
         if self.git.is_dirty(project_dir):
             self.git.stash(project_dir)
@@ -127,6 +134,10 @@ class Orchestrator:
         slug = self.git.slugify(task)
         branch = self.git.create_branch(project_dir, slug)
         self._emit("log", message=f"created branch {branch}")
+
+        # Artifacts created after the worktree is settled on the run branch.
+        art.ensure()
+        art.task_md.write_text(task)
 
         return self._loop(art, project_dir, task, roles, branch)
 
@@ -141,7 +152,7 @@ class Orchestrator:
                        prompts.planner_prompt(task, plan_rel), project_dir)
         except AgentError as e:
             return self._stop(art, roles, branch, 0, StopReason.AGENT_ERROR,
-                              str(e), None)
+                              self._agent_err(e), None)
 
         consecutive_fails = 0
         escalations = 0
@@ -161,7 +172,7 @@ class Orchestrator:
                            project_dir)
             except AgentError as e:
                 return self._stop(art, roles, branch, iteration,
-                                  StopReason.AGENT_ERROR, str(e), last_verdict)
+                                  StopReason.AGENT_ERROR, self._agent_err(e), last_verdict)
 
             if not self.git.has_changes(project_dir):
                 return self._stop(art, roles, branch, iteration,
@@ -179,7 +190,7 @@ class Orchestrator:
                                  prompts.reviewer_prompt(task, diff), project_dir)
             except AgentError as e:
                 return self._stop(art, roles, branch, iteration,
-                                  StopReason.AGENT_ERROR, str(e), last_verdict)
+                                  StopReason.AGENT_ERROR, self._agent_err(e), last_verdict)
 
             try:
                 verdict = parse_verdict(res.stdout)
@@ -212,7 +223,7 @@ class Orchestrator:
                                project_dir)
                 except AgentError as e:
                     return self._stop(art, roles, branch, iteration,
-                                      StopReason.AGENT_ERROR, str(e), verdict)
+                                      StopReason.AGENT_ERROR, self._agent_err(e), verdict)
                 consecutive_fails = 0
                 escalations += 1
 

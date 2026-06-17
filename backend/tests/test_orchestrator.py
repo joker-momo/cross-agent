@@ -191,6 +191,31 @@ def test_recovers_after_one_failure(tmp_path):
     assert res.iterations == 2
 
 
+def test_dirty_stash_does_not_eat_artifacts(tmp_path):
+    """Regression: `stash -u` ran before artifacts existed and swept the
+    untracked .trinity dir away, crashing the first status.json write."""
+    import shutil
+
+    class DirtyWipingGit(FakeGit):
+        def is_dirty(self, cwd):
+            return True  # force the stash path
+
+        def stash(self, cwd):
+            # Real `git stash -u` removes untracked files, including .trinity/.
+            shutil.rmtree(Path(cwd) / ".trinity", ignore_errors=True)
+
+    git = DirtyWipingGit()
+
+    def script(agent, role, i):
+        return verdict_json(True) if role is Role.REVIEWER else "ok"
+
+    orch = Orchestrator(invoke=make_invoke(script, git), git=git)
+    res = orch.run(tmp_path, "task", ROLES)  # must not raise
+    assert res.stop_reason is StopReason.APPROVED
+    assert (tmp_path / ".trinity" / "runs" / res.run_id
+            / "status.json").exists()
+
+
 def test_emits_stop_event(tmp_path):
     git = FakeGit()
 
