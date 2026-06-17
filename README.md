@@ -39,6 +39,23 @@ pnpm dev      # dev server on :5173, proxies API to :7777
 pnpm build    # outputs frontend/dist, served by `trinity serve`
 ```
 
+## Desktop app (Tauri)
+
+Native window that auto-spawns the Python backend on launch and kills it on
+exit. Needs Rust + `uv` on the machine (backend is run as `uv run trinity
+serve`, not frozen).
+
+```bash
+cd frontend
+pnpm install
+pnpm desktop          # dev: launches the Trinity window (spawns backend on :7777)
+pnpm desktop:build    # produces a .app / .dmg under src-tauri/target/release/bundle
+```
+
+The Rust shell (`src-tauri/`) resolves the repo's `backend/` dir at compile
+time and runs the server there; the UI loads from the bundled `dist/` and talks
+to the backend at `http://127.0.0.1:7777`.
+
 ## How it works
 
 - **Roles**: planner / implementer / reviewer — any agent in any role, per task.

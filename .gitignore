@@ -47,3 +47,7 @@ frontend/dist/
 
 # TS incremental build info
 frontend/*.tsbuildinfo
+
+# Tauri / Rust desktop build
+frontend/src-tauri/target/
+frontend/src-tauri/gen/

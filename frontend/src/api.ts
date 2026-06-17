@@ -1,3 +1,11 @@
+// Backend base URL. Empty string in a browser dev server (vite proxy handles
+// it); absolute when running inside the Tauri desktop shell, where there is no
+// proxy and the UI is served from tauri://localhost.
+export const API_BASE =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+    ? "http://127.0.0.1:7777"
+    : "";
+
 export type Agent = "claude" | "codex" | "agy";
 export const AGENTS: Agent[] = ["claude", "codex", "agy"];
 
@@ -26,11 +34,13 @@ async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+const u = (path: string) => `${API_BASE}${path}`;
+
 export const api = {
   listProjects: () =>
-    fetch("/projects").then((r) => json<{ projects: string[] }>(r)),
+    fetch(u("/projects")).then((r) => json<{ projects: string[] }>(r)),
   addProject: (path: string) =>
-    fetch("/projects", {
+    fetch(u("/projects"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ path }),
@@ -42,11 +52,11 @@ export const api = {
     max_iter: number;
     escalate_after: number;
   }) =>
-    fetch("/runs", {
+    fetch(u("/runs"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => json<{ run_id: string }>(r)),
   stopRun: (id: string) =>
-    fetch(`/run/${id}/stop`, { method: "POST" }).then((r) => json(r)),
+    fetch(u(`/run/${id}/stop`), { method: "POST" }).then((r) => json(r)),
 };

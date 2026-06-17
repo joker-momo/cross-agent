@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square, FolderPlus, Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { api, AGENTS, Agent, Roles } from "./api";
+import { api, API_BASE, AGENTS, Agent, Roles } from "./api";
 
 type Phase = "idle" | "running" | "stopped";
 
@@ -33,11 +33,27 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
+  const [backendUp, setBackendUp] = useState(false);
+
   useEffect(() => {
-    api.listProjects().then((d) => {
-      setProjects(d.projects);
-      if (d.projects[0]) setProject(d.projects[0]);
-    });
+    let cancelled = false;
+    // Backend may still be starting (desktop app spawns it on launch).
+    const tryLoad = async (attempt = 0) => {
+      try {
+        const d = await api.listProjects();
+        if (cancelled) return;
+        setBackendUp(true);
+        setProjects(d.projects);
+        if (d.projects[0]) setProject((p) => p || d.projects[0]);
+      } catch {
+        if (cancelled || attempt > 30) return;
+        setTimeout(() => tryLoad(attempt + 1), 1000);
+      }
+    };
+    tryLoad();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const addProject = async () => {
@@ -56,7 +72,7 @@ export default function App() {
 
   const startStream = useCallback(
     (id: string) => {
-      const es = new EventSource(`/run/${id}/events`);
+      const es = new EventSource(`${API_BASE}/run/${id}/events`);
       esRef.current = es;
       es.addEventListener("state", (e) => {
         const d = JSON.parse((e as MessageEvent).data);
@@ -135,6 +151,13 @@ export default function App() {
           </p>
         </div>
       </header>
+
+      {!backendUp && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" />
+          Connecting to backend on :7777…
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* --- Setup --- */}
