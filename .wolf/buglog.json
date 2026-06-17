@@ -142,5 +142,101 @@
     "related_bugs": ["bug-011"],
     "occurrences": 1,
     "last_seen": "2026-06-17T19:43:38+0700"
+  },
+  {
+    "id": "bug-013",
+    "timestamp": "2026-06-17T19:59:12+0700",
+    "error_message": "Claude status looked connected even though `claude auth status` returned loggedIn:false",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/AppState.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "Claude health marked the agent ready based on `claude --version` and cached ~/.claude.json account hints. It did not parse `claude auth status`, so a signed-out CLI could appear connected and Run could remain enabled for Claude roles.",
+    "fix": "Parse `claude auth status`, add an `auth` status displayed as Sign in required with a Connect button, skip live quota polling when signed out, and block task runs when selected roles require a signed-out agent.",
+    "tags": ["swift", "claude", "auth", "health", "ui", "run-guard"],
+    "related_bugs": ["bug-010"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T19:59:12+0700"
+  },
+  {
+    "id": "bug-014",
+    "timestamp": "2026-06-17T20:06:29+0700",
+    "error_message": "After Claude login succeeds, the app does not automatically fall back/recheck to show the logged-in account",
+    "file": "Sources/Trinity/AppState.swift, Sources/Trinity/ContentView.swift",
+    "root_cause": "The Connect action launches `claude auth login` in Terminal and returns immediately, so `loadAgents()` ran before the user finished browser/terminal authentication. No follow-up polling refreshed the sidebar after credentials landed.",
+    "fix": "Added post-switch account polling for up to two minutes, plus a sidebar 'Waiting for account...' state that disables account actions while polling. Verified Claude now shows Connected with live quota after login.",
+    "tags": ["swift", "claude", "login", "fallback", "polling", "ui"],
+    "related_bugs": ["bug-013"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T20:06:29+0700"
+  },
+  {
+    "id": "bug-015",
+    "timestamp": "2026-06-17T20:44:56+0700",
+    "error_message": "Quota UI hardcoded labels such as 5h/weekly and did not show reset time or account type consistently",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "Claude and Codex parsers inferred display labels from fixed window names or thresholds (`five_hour`, `seven_day`, `window_minutes >= 1440`) instead of rendering the reset timestamp and provider-supplied account type. This breaks for free or other account types with different quota windows.",
+    "fix": "Render quota windows from payload reset timestamps and dynamic durations, parse numeric epoch reset values, humanize account plan/subscription fields, show a Plan line in the sidebar, and update self-tests to avoid fixed 5h/weekly assertions.",
+    "tags": ["swift", "quota", "reset-time", "claude", "codex", "account-type", "ui"],
+    "related_bugs": ["bug-009", "bug-013", "bug-014"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T20:44:56+0700"
+  },
+  {
+    "id": "bug-016",
+    "timestamp": "2026-06-17T20:49:40+0700",
+    "error_message": "Quota display is ugly and hard to read because all quota/reset information is shown as one long line",
+    "file": "Sources/Trinity/ContentView.swift",
+    "root_cause": "AgentStatusRow rendered quota as a single Label string, so multiple windows and reset timestamps had no visual hierarchy and wrapped poorly in the macOS sidebar.",
+    "fix": "Replaced the single quota Label with QuotaBreakdown: each quota window renders as its own compact block with a percent meter and reset timestamp subline.",
+    "tags": ["swift", "ui", "quota", "sidebar", "macos"],
+    "related_bugs": ["bug-015"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T20:49:40+0700"
+  },
+  {
+    "id": "bug-017",
+    "timestamp": "2026-06-17T21:18:56+0700",
+    "error_message": "Only Codex quota showed compact window labels like 5h and 7d; Claude quota did not",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "Codex quota labels were derived from window_minutes, but Claude quota labels were humanized from API keys or omitted from reset-bearing rows. That made Claude display less scannable and inconsistent with Codex.",
+    "fix": "Added a shared quotaWindowLabel helper: use window_minutes when present, otherwise derive compact labels from provider keys such as five_hour -> 5h and seven_day_opus -> 7d Opus. Updated Claude self-tests.",
+    "tags": ["swift", "quota", "claude", "codex", "ui", "label"],
+    "related_bugs": ["bug-015", "bug-016"],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T21:18:56+0700"
+  },
+  {
+    "id": "bug-018",
+    "timestamp": "2026-06-17T21:18:56+0700",
+    "error_message": "Release self-test was killed because it was run in parallel with pkill for the Trinity app process",
+    "file": "n/a",
+    "root_cause": "The verification command `.build/release/Trinity.app/Contents/MacOS/Trinity --self-test` was grouped in a parallel tool call with `pkill -f Trinity.app/Contents/MacOS/Trinity`, so pkill terminated the self-test binary.",
+    "fix": "Reran the release self-test separately and recorded the passing result. Do not run app-kill commands in parallel with Trinity binary verification.",
+    "tags": ["verification", "swift", "self-test", "process"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T21:18:56+0700"
+  },
+  {
+    "id": "bug-019",
+    "timestamp": "2026-06-18T01:06:45+0700",
+    "error_message": "Claude account type showed 'Stripe Subscription' in the UI",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "The Claude fallback account reader used oauthAccount.billingType from ~/.claude.json as the displayed plan. Values such as stripe_subscription describe the payment mechanism, not the user-facing Claude plan.",
+    "fix": "Stopped using billingType as a Claude plan. The fallback now only reads explicit subscription/plan/tier fields; auth/live usage sources can still provide Pro/Max/etc. Added a self-test so billingType does not surface as an account plan.",
+    "tags": ["swift", "claude", "account-plan", "ui", "fallback"],
+    "related_bugs": ["bug-015"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T01:06:45+0700"
+  },
+  {
+    "id": "bug-020",
+    "timestamp": "2026-06-18T01:12:49+0700",
+    "error_message": "Codex account type showed 'Free' even though the user says the account is not Free",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "Codex status fell back to rate_limits.plan_type and also trusted an id_token ChatGPT plan claim of free. Those values are not reliable enough to present as the user-facing Codex account type.",
+    "fix": "Stopped using rate_limits.plan_type as Codex account type and suppress the literal free plan claim. Paid plan claims can still display, but unknown/free-like values now omit the plan line instead of inventing a misleading account type.",
+    "tags": ["swift", "codex", "account-plan", "ui", "jwt", "quota"],
+    "related_bugs": ["bug-015"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T01:12:49+0700"
   }
 ]

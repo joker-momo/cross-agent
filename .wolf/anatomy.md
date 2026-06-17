@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-17T10:38:11.561Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-17T18:36:17.572Z
 > Files: 17 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -14,16 +14,16 @@
 
 ## Sources/Trinity/
 
-- `AgentHealth.swift` — Class: AgentHealthService (~7565 tok)
+- `AgentHealth.swift` — Class: AgentHealthService (~11415 tok)
 - `AgentRunner.swift` — Struct: AgentCommandBuilder (~557 tok)
 - `AppState.swift` — SwiftUI observable app state and UI actions (~668 tok)
-- `ContentView.swift` — SwiftUI main window, task panel, status cards, live board (~2172 tok)
+- `ContentView.swift` — SwiftUI view: ContentView (~7698 tok)
 - `GitService.swift` — Class: GitService (~1067 tok)
 - `Models.swift` — Swift domain models for agents, roles, runs, status, verdict events (~603 tok)
 - `ProjectStore.swift` — Swift ~/.trinity project registry persistence (~508 tok)
 - `Prompts.swift` — Swift prompt templates for planner, implementer, reviewer (~905 tok)
 - `RunManager.swift` — Swift async run lifecycle and event history (~1834 tok)
-- `SelfTests.swift` — Class: CountBox (~2650 tok)
+- `SelfTests.swift` — Declares SelfTests (~3534 tok)
 - `Shell.swift` — Protocol: ShellRunning (~1502 tok)
 - `TrinityApp.swift` — SwiftUI app entrypoint plus --self-test shortcut (~75 tok)
 - `VerdictParser.swift` — Swift reviewer JSON extraction and decoding (~495 tok)

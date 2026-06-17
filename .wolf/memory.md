@@ -102,11 +102,16 @@ Append one line per significant action:
 | 15:16 | Redesigned Swift UI toward macOS-native structure | Sources/Trinity/ContentView.swift | NavigationSplitView sidebar/detail, toolbar actions, native GroupBox/List/Form-like controls; swift build and self-tests passed; shell screenshot blocked by macOS capture permissions | ~ |
 | 19:35 | Re-verified macOS-native Swift UI after permissions were granted | Sources/Trinity/ContentView.swift, /tmp/trinity-window-polished.png | Accessibility query and screencapture now work; release app self-test passed; captured final dark-mode window and polished helper text/quota wrapping | ~ |
 | 19:43 | Fixed Antigravity status handling in Swift UI | Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/AppState.swift, Sources/Trinity/Shell.swift | Agy now shows app/account/quota with Open button; missing runnable CLI is warned/guarded; swift build, self-tests, release build/sign, and screenshot passed | ~ |
+| 19:59 | Fixed Claude signed-out status handling | Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/AppState.swift, Sources/Trinity/SelfTests.swift | `claude auth status` loggedIn:false now shows Sign in required, Connect action, live quota sign-in note, and run guard; build/self-tests/release screenshot passed | ~ |
+| 20:06 | Added post-login account fallback polling | Sources/Trinity/AppState.swift, Sources/Trinity/ContentView.swift | Connect now polls agent status after opening login flow; Claude login verified as Connected with live quota; build/self-test/release screenshot passed | ~ |
+| 20:44 | Made quota/account display dynamic | Sources/Trinity/AgentHealth.swift, Sources/Trinity/ContentView.swift, Sources/Trinity/SelfTests.swift | Sidebar now shows Plan, quota reset local time, and dynamic Codex durations; removed hardcoded Claude 5h/weekly assumptions; swift build/self-tests/release self-test passed | ~ |
 
 ## Session: 2026-06-17 16:40
 
 | Time | Action | File(s) | Outcome | ~Tokens |
 |------|--------|---------|---------|--------|
+| 20:49 | Polished sidebar quota UI into structured per-window blocks with reset sublines and percent meter bars | Sources/Trinity/ContentView.swift | swift build pass, debug/release self-tests 20 passed, .app rebuilt and screenshot verified | ~ |
+| 21:18 | Applied taste-skill context to quota/status UI: normalized Claude quota labels to 5h/7d-style keys, added 60s silent agent status refresh, avoided refresh spinner flicker | Sources/Trinity/AgentHealth.swift, Sources/Trinity/AppState.swift, Sources/Trinity/SelfTests.swift | swift build pass, debug/release self-tests 20 passed, .app rebuilt | ~ |
 
 ## Session: 2026-06-17 16:41
 
@@ -172,3 +177,59 @@ Append one line per significant action:
 | 17:34 | Edited Sources/Trinity/AgentHealth.swift | 3→3 lines | ~40 |
 | 21:10 | antigravity transport fix (ref antigravity-usage/AntigravityQuotaWatcher): HTTPS self-signed loopback (URLSession trust delegate for 127.0.0.1) + HTTP fallback on --extension_server_port + X-Codeium-Csrf-Token header + monthly prompt credits; agy token is encrypted in Keychain (unreadable) | AgentHealth.swift, SelfTests.swift | clean build, 20 self-tests, universal .app | ~ |
 | 17:38 | Edited Sources/Trinity/AgentHealth.swift | modified check() | ~712 |
+
+## Session: 2026-06-17 20:29
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-17 21:10
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-17 00:58
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 21:25 | decoupled antigravity quota from agy CLI: check() no longer returns early on missing CLI; antigravity IDE quota + claude live run independent of CLI install state (agy quota belongs to the agent/IDE, not the CLI binary) | AgentHealth.swift | clean build, 20 self-tests, universal .app | ~ |
+| 01:04 | Edited Sources/Trinity/ContentView.swift | modified VStack() | ~430 |
+| 01:04 | Edited Sources/Trinity/ContentView.swift | modified LabeledCard() | ~333 |
+| 01:04 | Edited Sources/Trinity/ContentView.swift | modified LabeledCard() | ~414 |
+| 01:05 | Edited Sources/Trinity/ContentView.swift | modified LabeledCard() | ~359 |
+| 01:05 | Edited Sources/Trinity/ContentView.swift | 13→16 lines | ~126 |
+| 01:05 | Edited Sources/Trinity/ContentView.swift | removed 19 lines | ~10 |
+| 21:50 | UI redesign Mac-native: LabeledCard (regularMaterial + rounded + border) thay GroupBox cho Request/Config/LiveActivity; PhaseBadge -> capsule pill; empty state richer; request helper text | ContentView.swift | clean build, 21 self-tests, universal .app | ~ |
+| 01:06 | Fixed Claude plan fallback so payment billingType like stripe_subscription is not shown as account type | AgentHealth.swift, SelfTests.swift | swift build pass, debug self-tests 20 passed, packaged self-tests 21 passed, .app rebuilt | ~ |
+
+## Session: 2026-06-17 01:07
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-17 01:07
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 01:10 | Edited Sources/Trinity/ContentView.swift | modified HStack() | ~121 |
+| 01:11 | Edited Sources/Trinity/ContentView.swift | modified VStack() | ~181 |
+| 01:11 | Edited Sources/Trinity/ContentView.swift | modified overlay() | ~294 |
+| 01:12 | Fixed Codex account type display so unreliable Free/rate_limit plan values are not shown as user-facing plan | AgentHealth.swift, SelfTests.swift | swift build pass, debug self-tests 21 passed, packaged self-tests 22 passed, .app rebuilt | ~ |
+| 01:15 | Edited Sources/Trinity/ContentView.swift | modified VStack() | ~53 |
+| 01:20 | Edited Sources/Trinity/AgentHealth.swift | expanded (+17 lines) | ~296 |
+| 01:20 | Edited Sources/Trinity/AgentHealth.swift | 3→2 lines | ~41 |
+| 22:30 | decoupled codex account/quota from codex CLI (reads ~/.codex regardless of PATH, parity w/ agy); removed dead JWT flat-key lookup (605); removed sidebar "Quota" header label; installed codex CLI (npm @openai/codex --prefix ~/.npm-global) | AgentHealth.swift, ContentView.swift | 22 self-tests; live screenshot all 3 accounts show identity+quota meters | ~ |
+| 01:25 | Edited Sources/Trinity/AgentHealth.swift | 5→8 lines | ~147 |
+| 01:25 | Edited Sources/Trinity/AgentHealth.swift | added nullish coalescing | ~56 |
+| 01:26 | Edited Sources/Trinity/AgentHealth.swift | expanded (+7 lines) | ~239 |
+| 01:26 | Edited Sources/Trinity/SelfTests.swift | 3→3 lines | ~65 |
+| 01:26 | Edited Sources/Trinity/SelfTests.swift | "0% left" → "Opus 0% left" | ~23 |
+| 01:26 | Edited Sources/Trinity/SelfTests.swift | inline fix | ~29 |
+| 22:55 | codex plan fix: use rate_limits.plan_type (real "plus") not JWT chatgpt_plan_type ("free" misleading) — quota(from:) returns plan_type, codexAccount prefers it. agy quota labeled: Credits %+ binding model name (per-model quota, not time window) + prompt credits 500/50000. updated 3 antigravity self-tests | AgentHealth.swift, SelfTests.swift | 22 self-tests; live: codex=Plus, agy=Credits+Gemini labeled | ~ |
+| 01:29 | Moved agent account type inline before email in the sidebar account row and removed unused MetadataPill | ContentView.swift | swift build pass, debug self-tests 22 passed, packaged self-tests 22 passed, .app rebuilt | ~ |
+| 01:32 | Edited Sources/Trinity/AgentHealth.swift | modified antigravityLive() | ~447 |
+| 01:33 | Edited Sources/Trinity/AgentHealth.swift | added nullish coalescing | ~812 |
+| 01:33 | Edited Sources/Trinity/SelfTests.swift | modified check() | ~378 |
+| 23:40 | antigravity full quota: found RPC RetrieveUserQuotaSummary (response.groups[].buckets[] = window weekly/5h + remainingFraction + resetTime, grouped Gemini / Claude+GPT) = exact IDE "Model Quota" panel data; generic antigravityRPC helper; GetUserStatus for account/plan/credits + summary for quota | AgentHealth.swift, SelfTests.swift | 23 self-tests; live screenshot matches IDE (Gemini wk71/5h83, Claude-GPT wk80/5h100) | ~ |
+| 01:36 | Edited Sources/Trinity/AgentHealth.swift | expanded (+7 lines) | ~171 |
+| 01:43 | Installed official Antigravity CLI via antigravity.google/cli/install.sh | ~/.local/bin/agy, shell profiles | agy --version = 1.0.9, debug/release Trinity self-tests 23 passed | ~ |

@@ -44,6 +44,20 @@ final class AgentHealthService: @unchecked Sendable {
                 status.detail = "version check failed"
             }
             attachAccount(to: &status)
+            if agent == .claude {
+                switch await claudeAuthStatus() {
+                case .ok(let loggedIn, let account, let plan):
+                    if !account.isEmpty { status.account = account }
+                    if !plan.isEmpty { status.plan = status.plan.isEmpty ? plan : status.plan }
+                    if !loggedIn {
+                        status.status = "auth"
+                        status.detail = "Claude CLI is installed but not signed in"
+                        status.quotaRemaining = Self.appendNote(status.quotaRemaining, "sign in for live quota")
+                    }
+                case .unavailable:
+                    status.detail = Self.appendNote(status.detail, "auth status unavailable")
+                }
+            }
             if agent == .agy {
                 status.detail = status.detail.isEmpty ? "CLI: \(cliPath)" : status.detail
             }
@@ -54,16 +68,34 @@ final class AgentHealthService: @unchecked Sendable {
             status.canSwitch = true
         }
 
+        // Codex account + quota come from ~/.codex on disk, readable WITHOUT the
+        // CLI — surface them even when `codex` isn't on PATH (parity with agy).
+        if agent == .codex, cliPath == nil {
+            let info = codexAccount()
+            if !info.account.isEmpty || !info.quotaRemaining.isEmpty {
+                status.account = info.account
+                status.plan = info.plan
+                status.quotaHint = info.quotaHint
+                status.quotaRemaining = info.quotaRemaining
+                status.canSwitch = true
+                if status.status == "missing" {
+                    status.status = "app"
+                    status.detail = "Signed in; codex CLI not on PATH"
+                }
+            }
+        }
+
         // Live Claude quota (exact %) overrides config-file hints when available;
         // otherwise surface WHY realtime is missing instead of silently showing hints.
-        if agent == .claude, installed {
+        if agent == .claude, installed, status.status != "auth" {
             switch await claudeLive() {
             case .ok(let remaining, let hint, let plan):
                 if !remaining.isEmpty { status.quotaRemaining = remaining }
                 if !hint.isEmpty { status.quotaHint = hint }
-                if !plan.isEmpty { status.plan = plan }
+        if !plan.isEmpty { status.plan = Self.humanizeAccountPlan(plan) }
             case .noToken:
-                status.quotaRemaining = Self.appendNote(status.quotaRemaining, "live quota: run `claude setup-token`")
+                status.status = status.status == "ready" ? "auth" : status.status
+                status.quotaRemaining = Self.appendNote(status.quotaRemaining, "sign in for live quota")
             case .unavailable:
                 status.quotaRemaining = Self.appendNote(status.quotaRemaining, "live quota unavailable")
             }
@@ -189,17 +221,25 @@ final class AgentHealthService: @unchecked Sendable {
     private func antigravityLive() async -> AntigravityResult {
         let servers = await antigravityServers()
         if servers.isEmpty { return .ideClosed }
+        let userStatusBody = #"{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}"#
         for server in servers {
-            for port in server.ports {
-                if let object = await antigravityUserStatus(scheme: "https", port: port, csrf: server.csrf),
-                   let parsed = Self.parseAntigravityStatus(object) {
-                    return .ok(remaining: parsed.remaining, hint: parsed.hint, plan: parsed.plan, account: parsed.account)
+            var endpoints: [(scheme: String, port: UInt16)] = server.ports.map { ("https", $0) }
+            if let ext = server.extPort { endpoints.append(("http", ext)) }
+            for (scheme, port) in endpoints {
+                guard let status = await antigravityRPC(scheme: scheme, port: port, csrf: server.csrf,
+                                                        method: "GetUserStatus", body: userStatusBody),
+                      let base = Self.parseAntigravityStatus(status) else { continue }
+                var remaining = base.remaining
+                var hint = base.hint
+                // The IDE "Model Quota" panel: grouped weekly + 5-hour limits per
+                // model family. Richer than per-model GetUserStatus, so prefer it.
+                if let summary = await antigravityRPC(scheme: scheme, port: port, csrf: server.csrf,
+                                                      method: "RetrieveUserQuotaSummary", body: "{}"),
+                   let q = Self.parseAntigravityQuotaSummary(summary) {
+                    remaining = q.remaining
+                    hint = base.hint.isEmpty ? q.hint : "\(q.hint); \(base.hint)"
                 }
-            }
-            if let extPort = server.extPort,
-               let object = await antigravityUserStatus(scheme: "http", port: extPort, csrf: server.csrf),
-               let parsed = Self.parseAntigravityStatus(object) {
-                return .ok(remaining: parsed.remaining, hint: parsed.hint, plan: parsed.plan, account: parsed.account)
+                return .ok(remaining: remaining, hint: hint, plan: base.plan, account: base.account)
             }
         }
         return .unavailable
@@ -244,8 +284,9 @@ final class AgentHealthService: @unchecked Sendable {
         return ports
     }
 
-    private func antigravityUserStatus(scheme: String, port: UInt16, csrf: String) async -> [String: Any]? {
-        guard let url = URL(string: "\(scheme)://127.0.0.1:\(port)/exa.language_server_pb.LanguageServerService/GetUserStatus")
+    /// Generic Connect-RPC POST to the Antigravity language server.
+    private func antigravityRPC(scheme: String, port: UInt16, csrf: String, method: String, body: String) async -> [String: Any]? {
+        guard let url = URL(string: "\(scheme)://127.0.0.1:\(port)/exa.language_server_pb.LanguageServerService/\(method)")
         else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 8)
         request.httpMethod = "POST"
@@ -254,12 +295,54 @@ final class AgentHealthService: @unchecked Sendable {
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
         // Connect RPC expects this exact CSRF header name.
         request.setValue(csrf, forHTTPHeaderField: "X-Codeium-Csrf-Token")
-        request.httpBody = #"{"metadata":{"ideName":"antigravity","extensionName":"antigravity","ideVersion":"unknown","locale":"en"}}"#.data(using: .utf8)
+        request.httpBody = body.data(using: .utf8)
         guard let (data, response) = try? await Self.loopbackSession.data(for: request),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
         return object
+    }
+
+    /// Parse RetrieveUserQuotaSummary: response.groups[].buckets[] each carry a
+    /// `window` (weekly/5h), `remainingFraction`, and `resetTime`. This is the
+    /// exact data the IDE's "Model Quota" panel shows.
+    static func parseAntigravityQuotaSummary(_ value: [String: Any]) -> (remaining: String, hint: String)? {
+        let groups = ((value["response"] as? [String: Any])?["groups"] as? [[String: Any]])
+            ?? (value["groups"] as? [[String: Any]]) ?? []
+        var rows: [String] = []
+        for group in groups {
+            let name = shortGroupName(group["displayName"] as? String ?? "")
+            // Show the shorter 5-hour window before the weekly window in each group.
+            let buckets = ((group["buckets"] as? [[String: Any]]) ?? []).sorted { a, b in
+                let order = ["5h": 0, "weekly": 1]
+                let ra = order[(a["window"] as? String) ?? ""] ?? 2
+                let rb = order[(b["window"] as? String) ?? ""] ?? 2
+                return ra < rb
+            }
+            for bucket in buckets {
+                guard let frac = bucket["remainingFraction"] as? Double else { continue }
+                let window = (bucket["window"] as? String) ?? (bucket["displayName"] as? String) ?? ""
+                let remaining = max(0, min(100, Int((frac * 100).rounded())))
+                let label = "\(name) \(window)".trimmingCharacters(in: .whitespaces)
+                if let reset = bucket["resetTime"] as? String, !reset.isEmpty {
+                    rows.append("\(label) \(remaining)% left, \(resetText(reset))")
+                } else {
+                    rows.append("\(label) \(remaining)% left")
+                }
+            }
+        }
+        guard !rows.isEmpty else { return nil }
+        let joined = rows.joined(separator: "; ")
+        return (joined, joined)
+    }
+
+    /// "Gemini Models" -> "Gemini"; "Claude and GPT models" -> "Claude/GPT".
+    static func shortGroupName(_ display: String) -> String {
+        var s = display
+        for suffix in [" Models", " models"] where s.hasSuffix(suffix) {
+            s = String(s.dropLast(suffix.count))
+        }
+        return s.replacingOccurrences(of: " and ", with: "/")
     }
 
     /// Parse GetUserStatus. Per-model `quotaInfo.remainingFraction` (proto3 omits
@@ -285,16 +368,23 @@ final class AgentHealthService: @unchecked Sendable {
         let worst = models.max(by: { $0.used < $1.used })!
         let planStatus = userStatus["planStatus"] as? [String: Any] ?? [:]
         let planInfo = planStatus["planInfo"] as? [String: Any] ?? [:]
-        let plan = planInfo["planName"] as? String ?? ""
+        let plan = (planInfo["planName"] as? String).map(Self.humanizeAccountPlan) ?? ""
         let account = userStatus["email"] as? String ?? userStatus["name"] as? String ?? ""
 
         var hintParts = models.map { "\($0.label) \(100 - $0.used)% left" }
-        // Monthly prompt credits, if the plan reports them.
+
+        // Antigravity quota is per-MODEL (each resets on its own clock), plus a
+        // monthly prompt-credit pool. Show the binding (most-used) model as the
+        // labeled meter, and lead with credits when the plan reports them.
+        var rows: [String] = []
         if let available = planStatus["availablePromptCredits"] as? Double,
            let monthly = planInfo["monthlyPromptCredits"] as? Double, monthly > 0 {
+            let pct = max(0, min(100, Int((available / monthly * 100).rounded())))
+            rows.append("Credits \(pct)% left")
             hintParts.insert("credits \(Int(available))/\(Int(monthly))", at: 0)
         }
-        return ("5h \(100 - worst.used)% left", hintParts.joined(separator: "; "), plan, account)
+        rows.append("\(worst.label) \(100 - worst.used)% left")
+        return (rows.joined(separator: "; "), hintParts.joined(separator: "; "), plan, account)
     }
 
     private func attachAccount(to status: inout AgentStatus) {
@@ -335,12 +425,54 @@ final class AgentHealthService: @unchecked Sendable {
         }
         return (
             oauth["emailAddress"] as? String ?? "",
-            oauth["billingType"] as? String ?? "",
+            Self.claudeFallbackPlan(from: oauth, root: object),
             hints.joined(separator: "; ")
         )
     }
 
+    private static func claudeFallbackPlan(from oauth: [String: Any], root: [String: Any]) -> String {
+        for key in ["subscriptionType", "subscription_type", "plan", "planType", "tier", "account_type"] {
+            if let value = (oauth[key] as? String) ?? (root[key] as? String) {
+                let plan = humanizeAccountPlan(value)
+                if !plan.isEmpty { return plan }
+            }
+        }
+
+        // Claude's cached `billingType` can be values like `stripe_subscription`.
+        // That is a payment mechanism, not the user-facing account plan.
+        return ""
+    }
+
     // MARK: - Claude live usage (exact %)
+
+    enum ClaudeAuthResult: Equatable {
+        case ok(loggedIn: Bool, account: String, plan: String)
+        case unavailable
+    }
+
+    private func claudeAuthStatus() async -> ClaudeAuthResult {
+        guard let result = try? await shell.run(["claude", "auth", "status"], cwd: nil, timeout: 8),
+              result.ok,
+              let object = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        else { return .unavailable }
+        let parsed = Self.parseClaudeAuthStatus(object)
+        return .ok(loggedIn: parsed.loggedIn, account: parsed.account, plan: parsed.plan)
+    }
+
+    static func parseClaudeAuthStatus(_ value: [String: Any]) -> (loggedIn: Bool, account: String, method: String, plan: String) {
+        let loggedIn = value["loggedIn"] as? Bool ?? false
+        let account = value["email"] as? String
+            ?? value["account"] as? String
+            ?? ((value["user"] as? [String: Any])?["email"] as? String)
+            ?? ""
+        let method = value["authMethod"] as? String ?? ""
+        let plan = (value["subscriptionType"] as? String)
+            ?? (value["subscription_type"] as? String)
+            ?? (value["plan"] as? String)
+            ?? (value["planType"] as? String)
+            ?? ""
+        return (loggedIn, account, method, Self.humanizeAccountPlan(plan))
+    }
 
     /// Claude's config dir: `CLAUDE_CONFIG_DIR` if set (used by profile setups),
     /// else `~/.claude`. The keychain credential is keyed by this dir's hash.
@@ -433,34 +565,37 @@ final class AgentHealthService: @unchecked Sendable {
         return token
     }
 
-    /// Parse api/oauth/usage: five_hour/seven_day each carry utilization (0-100)
-    /// + resets_at. Returns nil if neither window has a number.
+    /// Parse api/oauth/usage. Each quota window carries utilization (0-100) and
+    /// often a reset timestamp. Do not infer fixed windows from key names:
+    /// account types can have different durations. Surface the reset time from
+    /// the payload instead.
     static func parseClaudeUsage(_ value: [String: Any]) -> (remaining: String, hint: String, plan: String)? {
         var labels: [String] = []
         var resets: [String] = []
 
-        func add(_ label: String, _ window: [String: Any]) {
+        func add(_ key: String, _ window: [String: Any]) {
             guard let used = window["utilization"] as? Double else { return }
             let remaining = max(0, min(100, Int((100 - used).rounded())))
-            labels.append("\(label) \(remaining)% left")
-            if let reset = window["resets_at"] as? String {
-                resets.append("\(label) reset \(reset)")
+            let label = Self.quotaWindowLabel(key: key, window: window)
+            if let reset = window["resets_at"] as? String, !reset.isEmpty {
+                let resetText = Self.resetText(reset)
+                labels.append("\(label) \(remaining)% left, \(resetText)")
+                resets.append("\(label) \(resetText)")
+            } else {
+                labels.append("\(label) \(remaining)% left")
             }
         }
 
-        if let w = value["five_hour"] as? [String: Any] { add("5h", w) }
-        if let w = value["seven_day"] as? [String: Any] { add("weekly", w) }
-        // Model-specific weekly windows, e.g. seven_day_sonnet / seven_day_opus.
-        for key in value.keys.sorted() where key.hasPrefix("seven_day_") && key != "seven_day" {
-            if let w = value[key] as? [String: Any] {
-                add("weekly \(key.replacingOccurrences(of: "seven_day_", with: ""))", w)
+        for key in value.keys.sorted() {
+            if let w = value[key] as? [String: Any], w["utilization"] is Double {
+                add(key, w)
             }
         }
         guard !labels.isEmpty else { return nil }
         var plan = ""
-        for key in ["subscription_type", "plan", "plan_type", "tier", "account_type"] {
+        for key in ["subscriptionType", "subscription_type", "plan", "plan_type", "tier", "account_type"] {
             if let raw = value[key] as? String, !raw.trimmingCharacters(in: .whitespaces).isEmpty {
-                plan = raw
+                plan = Self.humanizeAccountPlan(raw)
                 break
             }
         }
@@ -542,9 +677,23 @@ final class AgentHealthService: @unchecked Sendable {
             ?? auth["account_id"] as? String
             ?? ""
         let authClaims = claims["https://api.openai.com/auth"] as? [String: Any] ?? [:]
-        let plan = authClaims["chatgpt_plan_type"] as? String ?? ""
+        let jwtPlan = authClaims["chatgpt_plan_type"] as? String
         let quota = latestCodexQuota(in: codexHome.appendingPathComponent("sessions"))
-        return (account, plan.isEmpty ? quota.plan : plan, quota.hint, quota.remaining)
+        // rate_limits.plan_type is the real Codex entitlement (e.g. "plus"); the
+        // JWT chatgpt_plan_type can say "free" even for paying Codex users.
+        let plan = quota.plan.isEmpty ? jwtPlan : quota.plan
+        return (account, Self.codexDisplayPlan(plan), quota.hint, quota.remaining)
+    }
+
+    static func codexDisplayPlan(_ raw: String?) -> String {
+        guard let raw else { return "" }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        // The Codex id_token may report ChatGPT plan `free` even when the user
+        // has separate Codex/API entitlements. Do not present that as an account
+        // type; showing nothing is more honest than showing a misleading plan.
+        if trimmed.lowercased() == "free" { return "" }
+        return humanizeAccountPlan(trimmed)
     }
 
     /// Decode (without verifying) a JWT payload. Codex stores the OAuth id_token
@@ -603,16 +752,129 @@ final class AgentHealthService: @unchecked Sendable {
             guard let window = limits[key] as? [String: Any],
                   let used = window["used_percent"] as? Double
             else { continue }
-            let minutes = (window["window_minutes"] as? Double) ?? 0
-            let label = minutes >= 1_440 ? "weekly" : "5h"
+            let label = Self.quotaWindowLabel(key: key, window: window)
             let remaining = max(0, min(100, Int((100 - used).rounded())))
-            labels.append("\(label) \(remaining)% left")
             if let reset = window["resets_at"] {
-                resets.append("\(label) reset \(reset)")
+                let resetText = Self.resetText(String(describing: reset))
+                labels.append("\(label) \(remaining)% left, \(resetText)")
+                resets.append("\(label) \(resetText)")
+            } else {
+                labels.append("\(label) \(remaining)% left")
             }
         }
-        let plan = limits["plan_type"] as? String ?? ""
-        return (plan, resets.joined(separator: "; "), labels.joined(separator: "; "))
+        return (limits["plan_type"] as? String ?? "", resets.joined(separator: "; "), labels.joined(separator: "; "))
+    }
+
+    private static func quotaWindowLabel(key: String, window: [String: Any]) -> String {
+        if let minutes = window["window_minutes"] as? Double, minutes > 0 {
+            return durationLabel(minutes: minutes)
+        }
+
+        var parts = key.split(separator: "_").map(String.init)
+        if parts.count >= 2,
+           let count = wordNumber(parts[0]),
+           let unit = shortDurationUnit(parts[1]) {
+            parts.removeFirst(2)
+            let suffix = parts.map(humanizeAccountPlan).joined(separator: " ")
+            return suffix.isEmpty ? "\(count)\(unit)" : "\(count)\(unit) \(suffix)"
+        }
+
+        return humanizeQuotaKey(key)
+    }
+
+    private static func wordNumber(_ value: String) -> Int? {
+        if let number = Int(value) { return number }
+        return [
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
+            "eleven": 11,
+            "twelve": 12,
+        ][value.lowercased()]
+    }
+
+    private static func shortDurationUnit(_ value: String) -> String? {
+        switch value.lowercased() {
+        case "minute", "minutes", "min", "mins": return "m"
+        case "hour", "hours": return "h"
+        case "day", "days": return "d"
+        case "week", "weeks": return "w"
+        default: return nil
+        }
+    }
+
+    private static func durationLabel(minutes: Double) -> String {
+        let total = max(1, Int(minutes.rounded()))
+        if total % 1_440 == 0 { return "\(total / 1_440)d" }
+        if total % 60 == 0 { return "\(total / 60)h" }
+        if total > 60 {
+            let hours = total / 60
+            let mins = total % 60
+            return "\(hours)h \(mins)m"
+        }
+        return "\(total)m"
+    }
+
+    private static func resetText(_ raw: String) -> String {
+        guard let date = parseResetDate(raw) else { return "resets \(raw)" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d HH:mm"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        let local = formatter.string(from: date)
+        let relative = relativeResetText(to: date)
+        return relative.isEmpty ? "resets \(local)" : "resets \(local) (\(relative))"
+    }
+
+    private static func parseResetDate(_ raw: String) -> Date? {
+        if let numeric = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            let seconds = numeric > 10_000_000_000 ? numeric / 1_000 : numeric
+            return Date(timeIntervalSince1970: seconds)
+        }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: raw) { return date }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
+    }
+
+    private static func relativeResetText(to date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, Int(date.timeIntervalSince(now).rounded()))
+        if seconds == 0 { return "now" }
+        let days = seconds / 86_400
+        let hours = (seconds % 86_400) / 3_600
+        let minutes = (seconds % 3_600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(max(1, minutes))m"
+    }
+
+    private static func humanizeQuotaKey(_ key: String) -> String {
+        key.replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { part in
+                part.prefix(1).uppercased() + part.dropFirst().lowercased()
+            }
+            .joined(separator: " ")
+    }
+
+    static func humanizeAccountPlan(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(separator: " ")
+            .map { part in part.prefix(1).uppercased() + part.dropFirst().lowercased() }
+            .joined(separator: " ")
     }
 
     private func readJSONObject(_ url: URL) -> [String: Any]? {

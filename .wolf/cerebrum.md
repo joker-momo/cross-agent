@@ -56,6 +56,9 @@ you learn something useful (low bar — when in doubt, add it).
   - 9router itself does NOT read the CLI keychain — it runs its own OAuth PKCE
     login and stores its own tokens. We chose the keychain-read approach instead
     (lighter; no second login). Own-OAuth is the fallback option if needed later.
+  - Do NOT show `oauthAccount.billingType` from `~/.claude.json` as the account
+    plan. Values like `stripe_subscription` are payment mechanisms, not
+    user-facing account types.
 - Antigravity (agy): CLI = `agy`, auth = Google OAuth stored ENCRYPTED in Keychain
   "Antigravity IDE Safe Storage" (master key encrypting the IDE's state DB, Chrome
   Safe-Storage style) — NOT directly readable. So quota has two real sources, both
@@ -74,6 +77,14 @@ you learn something useful (low bar — when in doubt, add it).
     cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` then `:fetchAvailableModels`
     with a Bearer Google token (User-Agent `antigravity`). antigravity-usage logs
     in itself for this; it does NOT read agy's keychain token.
+  - RICH quota (the IDE "Model Quota" panel): RPC
+    `RetrieveUserQuotaSummary` (body `{}`) → `response.groups[].buckets[]`, each
+    bucket = `window` ("weekly"/"5h") + `remainingFraction` (1.0=full) +
+    `resetTime`. Groups are "Gemini Models" / "Claude and GPT models". This is
+    far richer than GetUserStatus (which only gives per-model 5h fraction). Use
+    GetUserStatus for email/plan/credits, RetrieveUserQuotaSummary for quota.
+    Find more hidden RPCs via `strings .../Resources/bin/language_server | grep
+    LanguageServerService/`.
   Parse: `userStatus.cascadeModelConfigData.clientModelConfigs[].quotaInfo.remainingFraction`
   (1.0 = full; label from `label` or `modelOrAlias.model`). PROTO3 GOTCHA: a
   default value is OMITTED, so a missing `remainingFraction` = 0.0 = exhausted —
@@ -102,6 +113,16 @@ you learn something useful (low bar — when in doubt, add it).
   a persistent sidebar for workspace/agent context, toolbar items for Run/Stop
   actions, and detail content built from native `GroupBox`, `List`, `Picker`,
   `Stepper`, and `TextEditor` controls instead of web-dashboard panels.
+- Sidebar quota should not be rendered as one long label. Use compact structured
+  rows per quota window, separate reset timestamp sublines, and small percent
+  meter bars for quick scanning.
+- For status/quota refresh in the Swift app, prefer silent background refreshes
+  for periodic polling; reserve visible "Checking accounts..." spinners for
+  user-triggered Recheck and login/account-switch polling.
+- Design guidance from taste-skill should be applied contextually here: Trinity
+  is a native macOS utility/product UI, not a marketing landing page, so use the
+  anti-default/visual-hierarchy/a11y parts but avoid hero/portfolio/web flourish
+  rules that do not fit.
 - Shell visual capture can be unavailable in this desktop harness:
   `screencapture` may fail to create a display image and `osascript` may lack
   Assistive Access, so app UI verification may need Computer Use or manual
