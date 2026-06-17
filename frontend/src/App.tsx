@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, FolderPlus, FolderSearch, Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { api, API_BASE, AGENTS, Agent, Roles } from "./api";
+import { Play, Square, FolderPlus, FolderSearch, Loader2, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { api, API_BASE, AGENTS, Agent, AgentStatus, Roles } from "./api";
 
 const IN_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -24,7 +24,7 @@ export default function App() {
   const [roles, setRoles] = useState<Roles>({
     planner: "claude",
     implementer: "agy",
-    reviewer: "codex",
+    reviewer: "claude",
   });
   const [maxIter, setMaxIter] = useState(5);
   const [escalateAfter, setEscalateAfter] = useState(2);
@@ -37,6 +37,20 @@ export default function App() {
   const esRef = useRef<EventSource | null>(null);
 
   const [backendUp, setBackendUp] = useState(false);
+  const [agents, setAgents] = useState<AgentStatus[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    try {
+      const d = await api.agentsStatus();
+      setAgents(d.agents);
+    } catch {
+      /* backend not ready yet */
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +62,7 @@ export default function App() {
         setBackendUp(true);
         setProjects(d.projects);
         if (d.projects[0]) setProject((p) => p || d.projects[0]);
+        loadAgents();
       } catch {
         if (cancelled || attempt > 30) return;
         setTimeout(() => tryLoad(attempt + 1), 1000);
@@ -173,6 +188,31 @@ export default function App() {
           Connecting to backend on :7777…
         </div>
       )}
+
+      <section className="mb-4 rounded-lg border border-border bg-card p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Agent connections
+          </h2>
+          <button
+            onClick={loadAgents}
+            disabled={agentsLoading || !backendUp}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+          >
+            <RefreshCw
+              size={12}
+              className={agentsLoading ? "animate-spin" : ""}
+            />
+            Recheck
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {AGENTS.map((a) => {
+            const s = agents.find((x) => x.agent === a);
+            return <AgentBadge key={a} agent={a} status={s} />;
+          })}
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* --- Setup --- */}
@@ -308,6 +348,49 @@ export default function App() {
             </div>
           )}
         </Card>
+      </div>
+    </div>
+  );
+}
+
+function AgentBadge({
+  agent,
+  status,
+}: {
+  agent: Agent;
+  status?: AgentStatus;
+}) {
+  const st = status?.status ?? "unknown";
+  const color =
+    st === "ready"
+      ? "bg-primary"
+      : st === "error"
+      ? "bg-amber-400"
+      : st === "missing"
+      ? "bg-red-500"
+      : "bg-muted-foreground";
+  const label =
+    st === "ready"
+      ? "connected"
+      : st === "missing"
+      ? "not installed"
+      : st === "error"
+      ? "error"
+      : "checking…";
+  const tip = status?.version || status?.detail || "";
+  return (
+    <div
+      title={tip}
+      className="flex items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1.5"
+    >
+      <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
+      <div className="min-w-0">
+        <div className="text-sm font-medium capitalize leading-none">
+          {agent}
+        </div>
+        <div className="truncate text-[11px] text-muted-foreground">
+          {label}
+        </div>
       </div>
     </div>
   );

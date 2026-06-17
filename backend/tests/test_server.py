@@ -19,6 +19,17 @@ def client(tmp_path, monkeypatch):
     return TestClient(server.app)
 
 
+def test_agents_status_shape(client):
+    r = client.get("/agents")
+    assert r.status_code == 200
+    agents = r.json()["agents"]
+    names = {a["agent"] for a in agents}
+    assert names == {"claude", "codex", "agy"}
+    for a in agents:
+        assert set(a) >= {"agent", "installed", "status"}
+        assert a["status"] in {"ready", "missing", "error"}
+
+
 def test_projects_empty(client):
     r = client.get("/projects")
     assert r.status_code == 200

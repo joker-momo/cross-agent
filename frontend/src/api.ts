@@ -34,9 +34,19 @@ async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
+export interface AgentStatus {
+  agent: Agent;
+  installed: boolean;
+  version: string;
+  status: "missing" | "ready" | "error";
+  detail: string;
+}
+
 const u = (path: string) => `${API_BASE}${path}`;
 
 export const api = {
+  agentsStatus: () =>
+    fetch(u("/agents")).then((r) => json<{ agents: AgentStatus[] }>(r)),
   listProjects: () =>
     fetch(u("/projects")).then((r) => json<{ projects: string[] }>(r)),
   addProject: (path: string) =>

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from . import health as health_mod
 from . import projects as projects_mod
 from .config import DEFAULT_HOST, DEFAULT_PORT, Agent, Roles, RunConfig
 from .runmanager import _SENTINEL, RunManager
@@ -45,6 +46,12 @@ class RunIn(BaseModel):
     roles: RolesIn
     max_iter: int = 5
     escalate_after: int = 2
+
+
+# --- agents ---
+@app.get("/agents")
+def get_agents():
+    return {"agents": health_mod.check_all()}
 
 
 # --- projects ---
