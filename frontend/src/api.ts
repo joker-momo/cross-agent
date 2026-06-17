@@ -40,6 +40,11 @@ export interface AgentStatus {
   version: string;
   status: "missing" | "ready" | "error";
   detail: string;
+  account: string;
+  plan: string;
+  quota_hint: string;
+  quota_remaining: string;
+  can_switch: boolean;
 }
 
 const u = (path: string) => `${API_BASE}${path}`;
@@ -69,4 +74,12 @@ export const api = {
     }).then((r) => json<{ run_id: string }>(r)),
   stopRun: (id: string) =>
     fetch(u(`/run/${id}/stop`), { method: "POST" }).then((r) => json(r)),
+  switchAccount: (agent: Agent, action = "login") =>
+    fetch(u(`/agents/${agent}/account`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).then((r) =>
+      json<{ agent: Agent; action: string; launched: string }>(r)
+    ),
 };

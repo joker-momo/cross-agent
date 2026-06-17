@@ -51,3 +51,7 @@ frontend/*.tsbuildinfo
 # Tauri / Rust desktop build
 frontend/src-tauri/target/
 frontend/src-tauri/gen/
+
+# Swift native app build
+.build/
+Trinity.app/

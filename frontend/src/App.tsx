@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, FolderPlus, FolderSearch, Loader2, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { Play, Square, FolderPlus, FolderSearch, Loader2, CheckCircle2, XCircle, RefreshCw, LogIn } from "lucide-react";
 import { api, API_BASE, AGENTS, Agent, AgentStatus, Roles } from "./api";
 
 const IN_TAURI =
@@ -51,6 +51,17 @@ export default function App() {
       setAgentsLoading(false);
     }
   }, []);
+
+  const switchAccount = async (agent: Agent) => {
+    if (phase === "running") return;
+    setError(null);
+    try {
+      await api.switchAccount(agent, "login");
+      await loadAgents();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -206,10 +217,18 @@ export default function App() {
             Recheck
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           {AGENTS.map((a) => {
             const s = agents.find((x) => x.agent === a);
-            return <AgentBadge key={a} agent={a} status={s} />;
+            return (
+              <AgentBadge
+                key={a}
+                agent={a}
+                status={s}
+                switchDisabled={phase === "running"}
+                onSwitch={() => switchAccount(a)}
+              />
+            );
           })}
         </div>
       </section>
@@ -356,9 +375,13 @@ export default function App() {
 function AgentBadge({
   agent,
   status,
+  switchDisabled,
+  onSwitch,
 }: {
   agent: Agent;
   status?: AgentStatus;
+  switchDisabled: boolean;
+  onSwitch: () => void;
 }) {
   const st = status?.status ?? "unknown";
   const color =
@@ -378,18 +401,50 @@ function AgentBadge({
       ? "error"
       : "checking…";
   const tip = status?.version || status?.detail || "";
+  const account = status?.account || "unknown account";
+  const quota = status?.quota_remaining || status?.quota_hint || "quota unknown";
+  const canSwitch =
+    Boolean(status?.can_switch) ||
+    Boolean(status?.installed && (agent === "claude" || agent === "codex"));
+  const switchLabel = account === "unknown account" ? "Connect" : "Switch";
   return (
     <div
       title={tip}
-      className="flex items-center gap-2 rounded-md border border-border bg-muted px-2.5 py-1.5"
+      className="rounded-md border border-border bg-muted px-2.5 py-2"
     >
-      <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
-      <div className="min-w-0">
-        <div className="text-sm font-medium capitalize leading-none">
-          {agent}
-        </div>
-        <div className="truncate text-[11px] text-muted-foreground">
-          {label}
+      <div className="flex items-start gap-2">
+        <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${color}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-medium capitalize leading-none">
+              {agent}
+            </div>
+            {canSwitch && (
+              <button
+                type="button"
+                onClick={onSwitch}
+                disabled={switchDisabled}
+                title={
+                  switchDisabled
+                    ? "Account switching is locked while a task is running"
+                    : `${switchLabel} ${agent} account`
+                }
+                className="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-border bg-card px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <LogIn size={13} />
+                {switchLabel}
+              </button>
+            )}
+          </div>
+          <div className="mt-1 truncate text-[11px] text-muted-foreground">
+            {label}
+          </div>
+          <div className="mt-1 truncate text-xs text-foreground">
+            {account}
+          </div>
+          <div className="truncate text-[11px] text-muted-foreground">
+            Quota: {quota}
+          </div>
         </div>
       </div>
     </div>

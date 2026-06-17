@@ -11,6 +11,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/agents": "http://127.0.0.1:7777",
       "/projects": "http://127.0.0.1:7777",
       "/runs": "http://127.0.0.1:7777",
       "/run": "http://127.0.0.1:7777",

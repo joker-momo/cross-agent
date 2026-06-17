@@ -47,6 +47,10 @@ class RunManager:
             r = self._runs.get(run_id)
             return asdict(r) if r else None
 
+    def has_active_run(self) -> bool:
+        with self._lock:
+            return any(r.stop_reason is None for r in self._runs.values())
+
     def stop(self, run_id: str) -> bool:
         ev = self._cancels.get(run_id)
         if ev:

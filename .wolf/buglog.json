@@ -1,1 +1,38 @@
-[]
+[
+  {
+    "id": "bug-001",
+    "timestamp": "2026-06-17T14:30:23+0700",
+    "error_message": "pytest collection failed with ModuleNotFoundError: No module named 'sse_starlette' when run outside the backend uv environment",
+    "file": "backend/pyproject.toml",
+    "root_cause": "The shell Python did not have backend dependencies installed; the project dependencies are available through the uv-managed backend environment.",
+    "fix": "Use `rtk uv run pytest ...` from backend/ for backend tests.",
+    "tags": ["pytest", "uv", "dependencies"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T14:30:23+0700"
+  },
+  {
+    "id": "bug-002",
+    "timestamp": "2026-06-17T14:30:23+0700",
+    "error_message": "GET /agents in Vite dev returned index.html instead of JSON",
+    "file": "frontend/vite.config.ts",
+    "root_cause": "The Vite dev proxy listed /projects, /runs, and /run, but not /agents, so the request fell through to the SPA fallback.",
+    "fix": "Added /agents to the Vite proxy table.",
+    "tags": ["vite", "proxy", "agents-status", "frontend"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T14:30:23+0700"
+  },
+  {
+    "id": "bug-003",
+    "timestamp": "2026-06-17T14:35:34+0700",
+    "error_message": "Codex health tests ignored monkeypatched _CODEX_HOME and read the real ~/.codex account",
+    "file": "backend/trinity/health.py",
+    "root_cause": "_codex_account used _CODEX_HOME as a default argument, so Python captured the original path at function definition time.",
+    "fix": "Changed the function default to None and resolved _CODEX_HOME inside the function body.",
+    "tags": ["python", "default-argument", "codex", "health"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-17T14:35:34+0700"
+  }
+]

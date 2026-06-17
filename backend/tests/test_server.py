@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from trinity import projects as projects_mod
 from trinity import server
-from trinity.runmanager import RunManager
+from trinity.runmanager import RunManager, RunRecord
 
 
 @pytest.fixture
@@ -26,8 +26,47 @@ def test_agents_status_shape(client):
     names = {a["agent"] for a in agents}
     assert names == {"claude", "codex", "agy"}
     for a in agents:
-        assert set(a) >= {"agent", "installed", "status"}
+        assert set(a) >= {
+            "agent", "installed", "status", "account", "quota_remaining",
+            "can_switch"
+        }
         assert a["status"] in {"ready", "missing", "error"}
+
+
+def test_switch_agent_account_launches_when_idle(client, monkeypatch):
+    launched = {}
+
+    def fake_switch(agent, action):
+        launched["agent"] = agent.value
+        launched["action"] = action
+        return "claude auth login"
+
+    monkeypatch.setattr(server.health_mod, "switch_account", fake_switch)
+    r = client.post("/agents/claude/account", json={"action": "login"})
+    assert r.status_code == 200
+    assert r.json() == {"agent": "claude", "action": "login",
+                        "launched": "claude auth login"}
+    assert launched == {"agent": "claude", "action": "login"}
+
+
+def test_switch_agent_account_blocked_while_run_active(client, monkeypatch):
+    called = False
+
+    def fake_switch(agent, action):
+        nonlocal called
+        called = True
+        return "claude auth login"
+
+    monkeypatch.setattr(server.health_mod, "switch_account", fake_switch)
+    server.manager._runs["r1"] = RunRecord(
+        run_id="r1", project="/p", request="x",
+        roles={"planner": "claude", "implementer": "agy", "reviewer": "codex"},
+        state="running",
+    )
+    r = client.post("/agents/claude/account", json={"action": "login"})
+    assert r.status_code == 409
+    assert r.json()["detail"] == "cannot switch account while a task is running"
+    assert called is False
 
 
 def test_projects_empty(client):

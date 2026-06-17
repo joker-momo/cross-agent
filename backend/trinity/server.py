@@ -48,10 +48,28 @@ class RunIn(BaseModel):
     escalate_after: int = 2
 
 
+class AccountSwitchIn(BaseModel):
+    action: str = "login"
+
+
 # --- agents ---
 @app.get("/agents")
 def get_agents():
     return {"agents": health_mod.check_all()}
+
+
+@app.post("/agents/{agent}/account")
+def switch_agent_account(agent: Agent, body: AccountSwitchIn):
+    if manager.has_active_run():
+        raise HTTPException(
+            status_code=409,
+            detail="cannot switch account while a task is running",
+        )
+    try:
+        launched = health_mod.switch_account(agent, body.action)
+    except health_mod.SwitchError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"agent": agent.value, "action": body.action, "launched": launched}
 
 
 # --- projects ---

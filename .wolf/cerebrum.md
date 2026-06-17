@@ -17,6 +17,12 @@ you learn something useful (low bar — when in doubt, add it).
 - Headless agent CLIs: `claude -p` (`--output-format json`), `codex exec`
   (`--output-schema`, `--sandbox workspace-write`), `agy -p --yes`
   (`--output-format json`, known non-TTY stdout drop — google-antigravity/antigravity-cli#76).
+- Frontend dev server API routes must be explicitly listed in `frontend/vite.config.ts`
+  proxy. Missing routes fall through to Vite's SPA HTML and can leave UI data
+  stuck in loading/fallback state.
+- `ai-switcher` proves Codex local status can be read without provider calls:
+  identity from `CODEX_HOME/auth.json`, and recent quota percent from local
+  `.codex/sessions/**/*.jsonl` `rate_limits` / `rate_limit` payloads.
 
 ## Do-Not-Repeat
 
