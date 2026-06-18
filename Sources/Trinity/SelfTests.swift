@@ -20,9 +20,76 @@ enum SelfTests {
                 && command.contains("/tmp/review.schema.json")
         }
 
-        check("agy always uses yes", &failures, &total) {
+        check("agy uses current non-interactive permission flag", &failures, &total) {
             let command = AgentCommandBuilder.build(agent: .agy, role: .implementer, prompt: "go")
-            return command.first == "agy" && command.contains("--yes")
+            let reviewer = AgentCommandBuilder.build(agent: .agy, role: .reviewer, prompt: "review")
+            return command.first == "agy"
+                && command.contains("--dangerously-skip-permissions")
+                && !command.contains("--yes")
+                && !reviewer.contains("--output-format")
+        }
+
+        check("planner prompt emits executable part schema", &failures, &total) {
+            let planner = Prompts.planner(task: "build x", planPath: ".trinity/plan.md")
+            let replan = Prompts.replan(task: "build x", planPath: ".trinity/plan.md", blockingIssues: ["bug"])
+            return planner.contains("Split the work into small")
+                && planner.contains("Each part must include its own verification")
+                && planner.contains("\"parts\"")
+                && planner.contains("\"pass_criteria\"")
+                && planner.contains("reviewer must approve that part before the next part starts")
+                && replan.contains("same JSON schema")
+        }
+
+        check("implementer and reviewer prompts are scoped to one part", &failures, &total) {
+            let part = samplePlanPart()
+            let implementer = Prompts.implementer(part: part, planPath: ".trinity/plan.md", feedback: ["missing test"])
+            let reviewer = Prompts.reviewer(part: part, task: "build x", planPath: ".trinity/plan.md", diff: "diff", implementerOutput: "tests pass")
+            let final = Prompts.finalReviewer(task: "build x", planPath: ".trinity/plan.md", diff: "diff")
+            return implementer.contains("implement ONLY the current part")
+                && implementer.contains("Do not start any later plan part")
+                && implementer.contains("Do not create commits")
+                && implementer.contains("missing test")
+                && reviewer.contains("ONLY the current plan part")
+                && reviewer.contains("verification was missing")
+                && reviewer.contains("implementers often hallucinate")
+                && reviewer.contains("Inspect every changed file")
+                && reviewer.contains("break existing behavior")
+                && final.contains("final full-plan review")
+                && final.contains("Inspect every changed file")
+        }
+
+        check("plan parser accepts fenced executable plan json", &failures, &total) {
+            let raw = """
+            # Plan
+            ```json
+            {
+              "parts": [
+                {
+                  "id": "part-1",
+                  "title": "Wire parser",
+                  "scope": "Parser only",
+                  "files": ["Sources/Trinity/VerdictParser.swift"],
+                  "steps": ["Add parser"],
+                  "verification": ["rtk swift build"],
+                  "pass_criteria": ["Parser decodes one part"]
+                }
+              ]
+            }
+            ```
+            """
+            let plan = try? PlanParser.parse(raw)
+            return plan?.parts.count == 1
+                && plan?.parts.first?.id == "part-1"
+                && plan?.parts.first?.passCriteria == ["Parser decodes one part"]
+        }
+
+        check("plan parser rejects empty parts", &failures, &total) {
+            do {
+                _ = try PlanParser.parse("```json\n{\"parts\": []}\n```")
+                return false
+            } catch {
+                return true
+            }
         }
 
         check("verdict parser accepts fenced json", &failures, &total) {
@@ -58,6 +125,36 @@ enum SelfTests {
             return git.slugify("v١٢٣ build") == "v-build"
         }
 
+        check("git preflight allows main before trinity branch creation", &failures, &total) {
+            let temp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("trinity-selftest-\(UUID().uuidString)")
+            do {
+                try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: temp) }
+                _ = try shell(["git", "init", "-b", "main"], cwd: temp)
+                _ = try shell(["git", "config", "user.email", "selftest@example.com"], cwd: temp)
+                _ = try shell(["git", "config", "user.name", "Self Test"], cwd: temp)
+                try "hello".write(to: temp.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+                _ = try shell(["git", "add", "README.md"], cwd: temp)
+                _ = try shell(["git", "commit", "-m", "init"], cwd: temp)
+                let semaphore = DispatchSemaphore(value: 0)
+                let resultBox = BoolBox()
+                Task.detached {
+                    do {
+                        try await GitService().preflight(cwd: temp)
+                        resultBox.set(true)
+                    } catch {
+                        resultBox.set(false)
+                    }
+                    semaphore.signal()
+                }
+                _ = semaphore.wait(timeout: .now() + 10)
+                return resultBox.value
+            } catch {
+                return false
+            }
+        }
+
         check("agent runner resolves bundled review schema", &failures, &total) {
             guard let path = AgentRunner.reviewSchemaPath() else { return false }
             let command = AgentCommandBuilder.build(agent: .codex, role: .reviewer, prompt: "r", schemaPath: path)
@@ -81,6 +178,31 @@ enum SelfTests {
             AgentHealthService.codexDisplayPlan("free").isEmpty
                 && AgentHealthService.codexDisplayPlan("plus") == "Plus"
                 && AgentHealthService.codexDisplayPlan(nil).isEmpty
+        }
+
+        check("codex live usage parses wham quota schema", &failures, &total) {
+            let value: [String: Any] = [
+                "email": "dev@example.com",
+                "plan_type": "plus",
+                "rate_limit": [
+                    "primary_window": [
+                        "used_percent": 4.0,
+                        "limit_window_seconds": 18_000.0,
+                        "reset_at": 1_781_760_400.0,
+                    ],
+                    "secondary_window": [
+                        "used_percent": 1.0,
+                        "limit_window_seconds": 604_800.0,
+                        "reset_at": 1_782_347_200.0,
+                    ],
+                ],
+            ]
+            guard let parsed = AgentHealthService.parseCodexUsage(value) else { return false }
+            return parsed.account == "dev@example.com"
+                && parsed.plan == "Plus"
+                && parsed.remaining.contains("5h 96% left")
+                && parsed.remaining.contains("7d 99% left")
+                && parsed.hint.contains("5h resets")
         }
 
         check("claude usage parses utilization to remaining", &failures, &total) {
@@ -268,11 +390,50 @@ enum SelfTests {
         }
     }
 
+    private static func samplePlanPart() -> PlanPart {
+        PlanPart(
+            id: "part-1",
+            title: "Small part",
+            scope: "Only one change",
+            files: ["Sources/Trinity/RunManager.swift"],
+            steps: ["Make the change"],
+            verification: ["rtk swift build"],
+            passCriteria: ["Build passes"]
+        )
+    }
+
+    @discardableResult
+    private static func shell(_ command: [String], cwd: URL) throws -> ProcessResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = command
+        process.currentDirectoryURL = cwd
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        return ProcessResult(
+            code: process.terminationStatus,
+            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            command: command
+        )
+    }
+
     /// Thread-safe int holder for bridging an async result back to a sync check.
     private final class CountBox: @unchecked Sendable {
         private let lock = NSLock()
         private var storage = 0
         func set(_ value: Int) { lock.lock(); storage = value; lock.unlock() }
         var value: Int { lock.lock(); defer { lock.unlock() }; return storage }
+    }
+
+    private final class BoolBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = false
+        func set(_ value: Bool) { lock.lock(); storage = value; lock.unlock() }
+        var value: Bool { lock.lock(); defer { lock.unlock() }; return storage }
     }
 }

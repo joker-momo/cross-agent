@@ -25,11 +25,7 @@ struct AgentCommandBuilder {
             }
             return command
         case .agy:
-            var command = ["agy", "-p", prompt, "--yes"]
-            if needsJSON {
-                command += ["--output-format", "json"]
-            }
-            return command
+            return ["agy", "-p", prompt, "--dangerously-skip-permissions"]
         }
     }
 }

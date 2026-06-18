@@ -9,6 +9,16 @@ you learn something useful (low bar — when in doubt, add it).
 - Reasoning-tier handshake: begin every reply with `Reasoning tier: <low|medium|high|max> — reason`.
 - Roles are flexible per task: any of {claude, codex, agy} can be planner /
   implementer / reviewer.
+- User wants planner output split into small, detailed parts. Each part must have
+  explicit verification, and the implementer must test/verify a part before
+  moving to the next one.
+- User clarified the real orchestration gate: after the implementer finishes one
+  small task, all verification for that part must pass, then the reviewer checks
+  that part once more; only reviewer approval unlocks the next part. After all
+  parts pass, reviewer must run one final full-plan review.
+- User wants reviewer to be deliberately skeptical because implementers can
+  hallucinate or edit unrelated code. Reviewer must inspect every changed file,
+  check side effects on existing behavior, and block untested or unrelated impact.
 
 ## Key Learnings
 
@@ -106,6 +116,11 @@ you learn something useful (low bar — when in doubt, add it).
     `used_percent`, `window_minutes` (300=5h, 10080=weekly; NOT seconds), `resets_at`
     (epoch, NOT `reset_at`). Plan name also at `rate_limits.plan_type`.
   - rate_limits appears in recent sessions too, so scanning newest ~20 jsonl works.
+- Codex quota should prefer live `https://chatgpt.com/backend-api/wham/usage`
+  over local session snapshots. Live schema is `rate_limit.primary_window` /
+  `secondary_window` with `used_percent`, `limit_window_seconds`, and `reset_at`.
+  Session JSONL quota is fallback only because rollout mtimes/symlinked sessions
+  can be stale or reflect another recent account/run.
 - Current machine has SwiftPM/Command Line Tools but not full Xcode; `xcodebuild`
   is unavailable and XCTest/Swift Testing modules are absent, so native Swift
   verification uses `Trinity --self-test`.
@@ -147,6 +162,18 @@ you learn something useful (low bar — when in doubt, add it).
 - Codex reviewer needs `--output-schema <path>`; the schema ships as a Swift
   resource (`Sources/Trinity/Resources/review.schema.json`) resolved via
   `Bundle.module` — note the resource base name is `review.schema` (ext `json`).
+- Main Trinity run loop should not create checkpoint commits during
+  planner/implementer/reviewer iterations. Keep changes uncommitted and have the
+  reviewer inspect the full diff from the original branch base, including
+  committed, staged, and working-tree changes.
+- Trinity plans are now executable data, not just prose: planner writes a fenced
+  JSON object with `parts[]`; RunManager parses it and runs implementer/reviewer
+  one part at a time before a final full-plan review.
+- SwiftUI views that display run state/history must observe `RunManager`
+  directly. Reading `AppState.currentRun` alone can miss redraws because it is a
+  computed property over a nested `ObservableObject`.
+- Agy CLI 1.0.9 supports `-p/--print` and `--dangerously-skip-permissions`; it
+  does NOT support legacy `--yes` or `--output-format json`.
 
 ## Do-Not-Repeat
 
@@ -169,3 +196,7 @@ you learn something useful (low bar — when in doubt, add it).
   macOS app (`Sources/Trinity/`, SwiftPM). No localhost, no `uv`/`node`, no other
   runtime. Verification = `Trinity --self-test` (no XCTest in this Command Line
   Tools env). Do NOT reintroduce Python/Rust/web layers.
+- 2026-06-18: Loop strategy = strict per-plan-part gate. Planner produces
+  executable `parts[]`; implementer runs exactly one part and its verification;
+  reviewer must approve that part before the next part starts; after all parts
+  pass, reviewer performs one final full-plan review. No commits inside the flow.

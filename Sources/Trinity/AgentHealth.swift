@@ -85,6 +85,31 @@ final class AgentHealthService: @unchecked Sendable {
             }
         }
 
+        // Codex quota from session files is only a fallback: rollout/session
+        // mtimes can be stale or shared across profile switches. Prefer the live
+        // ChatGPT usage endpoint whenever the local auth token works.
+        if agent == .codex {
+            switch await codexLive() {
+            case .ok(let account, let remaining, let hint, let plan):
+                if !account.isEmpty { status.account = account }
+                if !remaining.isEmpty { status.quotaRemaining = remaining }
+                if !hint.isEmpty { status.quotaHint = hint }
+                if !plan.isEmpty { status.plan = plan }
+                status.canSwitch = true
+                if status.status == "missing" {
+                    status.status = "app"
+                    status.detail = "Signed in; codex CLI not on PATH"
+                }
+            case .noToken:
+                status.status = status.status == "ready" ? "auth" : status.status
+                status.quotaRemaining = Self.appendNote(status.quotaRemaining, "sign in for live quota")
+            case .unavailable:
+                if status.quotaRemaining.isEmpty {
+                    status.quotaRemaining = "live quota unavailable"
+                }
+            }
+        }
+
         // Live Claude quota (exact %) overrides config-file hints when available;
         // otherwise surface WHY realtime is missing instead of silently showing hints.
         if agent == .claude, installed, status.status != "auth" {
@@ -96,6 +121,10 @@ final class AgentHealthService: @unchecked Sendable {
             case .noToken:
                 status.status = status.status == "ready" ? "auth" : status.status
                 status.quotaRemaining = Self.appendNote(status.quotaRemaining, "sign in for live quota")
+            case .expired:
+                status.status = status.status == "ready" ? "auth" : status.status
+                status.detail = "Claude token expired — run `claude auth login`"
+                status.quotaRemaining = Self.appendNote(status.quotaRemaining, "token expired — run `claude auth login`")
             case .unavailable:
                 status.quotaRemaining = Self.appendNote(status.quotaRemaining, "live quota unavailable")
             }
@@ -486,6 +515,7 @@ final class AgentHealthService: @unchecked Sendable {
     enum ClaudeLiveResult: Equatable {
         case ok(remaining: String, hint: String, plan: String)
         case noToken      // not logged in via keychain — realtime needs `claude setup-token`
+        case expired      // token rejected (401) and refresh failed — re-auth needed
         case unavailable  // token present but the endpoint/network failed
     }
 
@@ -537,6 +567,11 @@ final class AgentHealthService: @unchecked Sendable {
         if http.statusCode == 429 {
             Self.usageCooldown.arm(configDir.path, seconds: Self.usage429CooldownSeconds)
             return .unavailable
+        }
+        // Stored token expired and the refresh attempt above did not yield a fresh
+        // one — the user must re-authenticate the CLI.
+        if http.statusCode == 401 || http.statusCode == 403 {
+            return .expired
         }
         guard (200..<400).contains(http.statusCode),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -696,6 +731,86 @@ final class AgentHealthService: @unchecked Sendable {
         return humanizeAccountPlan(trimmed)
     }
 
+    enum CodexLiveResult: Equatable {
+        case ok(account: String, remaining: String, hint: String, plan: String)
+        case noToken
+        case unavailable
+    }
+
+    private func codexLive() async -> CodexLiveResult {
+        let codexHome = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CODEX_HOME"] ?? home.appendingPathComponent(".codex").path)
+        let auth = readJSONObject(codexHome.appendingPathComponent("auth.json")) ?? [:]
+        let tokens = auth["tokens"] as? [String: Any] ?? [:]
+        guard let token = tokens["access_token"] as? String, !token.isEmpty else {
+            return .noToken
+        }
+
+        guard let url = URL(string: "https://chatgpt.com/backend-api/wham/usage") else {
+            return .unavailable
+        }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Trinity/0.1", forHTTPHeaderField: "User-Agent")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse
+        else { return .unavailable }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            return .noToken
+        }
+        guard (200..<300).contains(http.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let parsed = Self.parseCodexUsage(object)
+        else { return .unavailable }
+        return .ok(account: parsed.account, remaining: parsed.remaining, hint: parsed.hint, plan: parsed.plan)
+    }
+
+    static func parseCodexUsage(_ value: [String: Any]) -> (account: String, remaining: String, hint: String, plan: String)? {
+        guard let limits = value["rate_limit"] as? [String: Any] else { return nil }
+        var labels: [String] = []
+        var resets: [String] = []
+
+        func add(_ key: String, _ window: [String: Any]) {
+            guard let used = Self.doubleValue(window["used_percent"]) else { return }
+            let label = Self.codexLiveWindowLabel(key: key, window: window)
+            let remaining = max(0, min(100, Int((100 - used).rounded())))
+            if let reset = window["reset_at"] ?? window["resets_at"] {
+                let resetText = Self.resetText(String(describing: reset))
+                labels.append("\(label) \(remaining)% left, \(resetText)")
+                resets.append("\(label) \(resetText)")
+            } else {
+                labels.append("\(label) \(remaining)% left")
+            }
+        }
+
+        if let primary = limits["primary_window"] as? [String: Any] {
+            add("primary_window", primary)
+        }
+        if let secondary = limits["secondary_window"] as? [String: Any] {
+            add("secondary_window", secondary)
+        }
+        guard !labels.isEmpty else { return nil }
+
+        let account = value["email"] as? String ?? value["account_id"] as? String ?? ""
+        let plan = Self.codexDisplayPlan(value["plan_type"] as? String)
+        return (account, labels.joined(separator: "; "), resets.joined(separator: "; "), plan)
+    }
+
+    private static func codexLiveWindowLabel(key: String, window: [String: Any]) -> String {
+        if let seconds = doubleValue(window["limit_window_seconds"]), seconds > 0 {
+            return durationLabel(minutes: seconds / 60)
+        }
+        if let minutes = doubleValue(window["window_minutes"]), minutes > 0 {
+            return durationLabel(minutes: minutes)
+        }
+        switch key {
+        case "primary_window": return "Primary"
+        case "secondary_window": return "Secondary"
+        default: return humanizeQuotaKey(key)
+        }
+    }
+
     /// Decode (without verifying) a JWT payload. Codex stores the OAuth id_token
     /// in auth.json; account email and ChatGPT plan live in its claims.
     static func decodeJWTClaims(_ token: String) -> [String: Any] {
@@ -820,6 +935,14 @@ final class AgentHealthService: @unchecked Sendable {
             return "\(hours)h \(mins)m"
         }
         return "\(total)m"
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        if let value = value as? String { return Double(value) }
+        return nil
     }
 
     private static func resetText(_ raw: String) -> String {

@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-17T18:36:17.572Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-18T00:32:48.372Z
 > Files: 17 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -14,7 +14,7 @@
 
 ## Sources/Trinity/
 
-- `AgentHealth.swift` — Class: AgentHealthService (~11415 tok)
+- `AgentHealth.swift` — Class: AgentHealthService (~13022 tok)
 - `AgentRunner.swift` — Struct: AgentCommandBuilder (~557 tok)
 - `AppState.swift` — SwiftUI observable app state and UI actions (~668 tok)
 - `ContentView.swift` — SwiftUI view: ContentView (~7698 tok)
