@@ -40,9 +40,6 @@ final class RunManager: ObservableObject {
     private func execute(runId: String, project: String, request: String, roles: Roles, config: RunConfig) async {
         let projectURL = URL(fileURLWithPath: project)
         var branch: String?
-        var lastVerdict: Verdict?
-        var consecutiveFails = 0
-        var escalations = 0
 
         do {
             try await git.preflight(cwd: projectURL)
@@ -50,6 +47,7 @@ final class RunManager: ObservableObject {
                 try await git.stash(cwd: projectURL)
                 append(runId, .init(kind: .log, text: "stashed dirty worktree before run"))
             }
+            let baseRef = try await git.currentHead(cwd: projectURL)
             branch = try await git.createBranch(cwd: projectURL, slug: git.slugify(request))
             append(runId, .init(kind: .log, text: "created branch \(branch ?? "")"))
 
@@ -57,52 +55,106 @@ final class RunManager: ObservableObject {
             try ensureArtifacts(project: projectURL, runId: runId, task: request)
             setState(runId, .planning, iteration: 0, branch: branch)
             _ = try await runner.run(agent: roles.planner, role: .planner, prompt: Prompts.planner(task: request, planPath: planPath), cwd: projectURL, timeout: config.callTimeoutSeconds)
+            let plan: ExecutionPlan
+            do {
+                let rawPlan = try String(contentsOf: projectURL.appendingPathComponent(planPath), encoding: .utf8)
+                plan = try PlanParser.parse(rawPlan)
+            } catch {
+                finish(runId, reason: .planRejected, message: "planner produced an invalid executable plan: \(error.localizedDescription)", iteration: 0, branch: branch)
+                return
+            }
+            append(runId, .init(kind: .log, text: "planner produced \(plan.parts.count) executable part(s)"))
 
-            for iteration in 1...config.maxIter {
-                if cancels[runId] == true {
-                    finish(runId, reason: .cancelled, message: "cancelled by user", iteration: iteration - 1, branch: branch)
-                    return
+            var iteration = 0
+            for (partIndex, part) in plan.parts.enumerated() {
+                var partFeedback: [String]?
+                var partApproved = false
+
+                for attempt in 1...config.maxIter {
+                    iteration += 1
+                    if cancels[runId] == true {
+                        finish(runId, reason: .cancelled, message: "cancelled by user", iteration: iteration - 1, branch: branch)
+                        return
+                    }
+
+                    append(runId, .init(kind: .log, text: "part \(partIndex + 1)/\(plan.parts.count) attempt \(attempt): \(part.title)", iteration: iteration))
+                    setState(runId, .implementing, iteration: iteration, branch: branch)
+                    let implement = try await runner.run(
+                        agent: roles.implementer,
+                        role: .implementer,
+                        prompt: Prompts.implementer(part: part, planPath: planPath, feedback: partFeedback),
+                        cwd: projectURL,
+                        timeout: config.callTimeoutSeconds
+                    )
+
+                    guard try await git.hasChanges(cwd: projectURL) else {
+                        finish(runId, reason: .noChanges, message: "implementer produced no edits for \(part.id)", iteration: iteration, branch: branch)
+                        return
+                    }
+
+                    let diff = try await git.diff(cwd: projectURL, from: baseRef)
+
+                    setState(runId, .reviewing, iteration: iteration, branch: branch)
+                    let review = try await runner.run(
+                        agent: roles.reviewer,
+                        role: .reviewer,
+                        prompt: Prompts.reviewer(part: part, task: request, planPath: planPath, diff: diff, implementerOutput: implement.stdout),
+                        cwd: projectURL,
+                        timeout: config.callTimeoutSeconds
+                    )
+                    let verdict = try VerdictParser.parse(review.stdout)
+                    append(runId, .init(
+                        kind: .verdict,
+                        text: verdict.approved
+                            ? "part \(partIndex + 1)/\(plan.parts.count) attempt \(attempt): APPROVED - \(verdict.reason)"
+                            : "part \(partIndex + 1)/\(plan.parts.count) attempt \(attempt): rejected - \(verdict.blockingIssues.joined(separator: "; "))",
+                        approved: verdict.approved,
+                        iteration: iteration
+                    ))
+
+                    if verdict.approved {
+                        partApproved = true
+                        break
+                    }
+
+                    partFeedback = verdict.blockingIssues
                 }
 
-                setState(runId, .implementing, iteration: iteration, branch: branch)
-                let feedback = lastVerdict?.blockingIssues
-                _ = try await runner.run(agent: roles.implementer, role: .implementer, prompt: Prompts.implementer(planPath: planPath, feedback: feedback), cwd: projectURL, timeout: config.callTimeoutSeconds)
-
-                guard try await git.hasChanges(cwd: projectURL) else {
-                    finish(runId, reason: .noChanges, message: "implementer produced no edits", iteration: iteration, branch: branch)
+                guard partApproved else {
+                    finish(runId, reason: .maxIterations, message: "\(part.id) was not approved in \(config.maxIter) attempt(s)", iteration: iteration, branch: branch)
                     return
-                }
-
-                let diff = try await git.diff(cwd: projectURL)
-                let sha = try await git.checkpoint(cwd: projectURL, message: "wip: iter \(iteration)") ?? "none"
-                append(runId, .init(kind: .log, text: "checkpoint \(sha) for iter \(iteration)"))
-
-                setState(runId, .reviewing, iteration: iteration, branch: branch)
-                let review = try await runner.run(agent: roles.reviewer, role: .reviewer, prompt: Prompts.reviewer(task: request, diff: diff), cwd: projectURL, timeout: config.callTimeoutSeconds)
-                let verdict = try VerdictParser.parse(review.stdout)
-                lastVerdict = verdict
-                append(runId, .init(kind: .verdict, text: verdict.approved ? "iter \(iteration): APPROVED - \(verdict.reason)" : "iter \(iteration): rejected - \(verdict.blockingIssues.joined(separator: "; "))", approved: verdict.approved, iteration: iteration))
-
-                if verdict.approved {
-                    setState(runId, .done, iteration: iteration, branch: branch, stopReason: .approved)
-                    finish(runId, reason: .approved, message: "approved after \(iteration) iteration(s)", iteration: iteration, branch: branch, setStoppedState: false)
-                    return
-                }
-
-                consecutiveFails += 1
-                if consecutiveFails >= config.escalateAfter && iteration < config.maxIter {
-                    setState(runId, .planning, iteration: iteration, branch: branch)
-                    append(runId, .init(kind: .log, text: "escalating to planner"))
-                    _ = try await runner.run(agent: roles.planner, role: .planner, prompt: Prompts.replan(task: request, planPath: planPath, blockingIssues: verdict.blockingIssues), cwd: projectURL, timeout: config.callTimeoutSeconds)
-                    consecutiveFails = 0
-                    escalations += 1
                 }
             }
 
-            if escalations >= config.escalateAfter {
-                finish(runId, reason: .planRejected, message: "plan repeatedly wrong after \(escalations) re-plans", iteration: config.maxIter, branch: branch)
+            if cancels[runId] == true {
+                finish(runId, reason: .cancelled, message: "cancelled by user", iteration: iteration, branch: branch)
+                return
+            }
+
+            let finalDiff = try await git.diff(cwd: projectURL, from: baseRef)
+            setState(runId, .reviewing, iteration: iteration + 1, branch: branch)
+            let finalReview = try await runner.run(
+                agent: roles.reviewer,
+                role: .reviewer,
+                prompt: Prompts.finalReviewer(task: request, planPath: planPath, diff: finalDiff),
+                cwd: projectURL,
+                timeout: config.callTimeoutSeconds
+            )
+            let finalVerdict = try VerdictParser.parse(finalReview.stdout)
+            append(runId, .init(
+                kind: .verdict,
+                text: finalVerdict.approved
+                    ? "final review: APPROVED - \(finalVerdict.reason)"
+                    : "final review: rejected - \(finalVerdict.blockingIssues.joined(separator: "; "))",
+                approved: finalVerdict.approved,
+                iteration: iteration + 1
+            ))
+
+            if finalVerdict.approved {
+                setState(runId, .done, iteration: iteration + 1, branch: branch, stopReason: .approved)
+                finish(runId, reason: .approved, message: "all \(plan.parts.count) part(s) and final review approved", iteration: iteration + 1, branch: branch, setStoppedState: false)
             } else {
-                finish(runId, reason: .maxIterations, message: "not approved in \(config.maxIter) iterations", iteration: config.maxIter, branch: branch)
+                finish(runId, reason: .maxIterations, message: "final full-plan review rejected: \(finalVerdict.blockingIssues.joined(separator: "; "))", iteration: iteration + 1, branch: branch)
             }
         } catch {
             finish(runId, reason: .agentError, message: error.localizedDescription, iteration: currentIteration(runId), branch: branch)

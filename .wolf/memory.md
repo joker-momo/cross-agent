@@ -233,3 +233,25 @@ Append one line per significant action:
 | 23:40 | antigravity full quota: found RPC RetrieveUserQuotaSummary (response.groups[].buckets[] = window weekly/5h + remainingFraction + resetTime, grouped Gemini / Claude+GPT) = exact IDE "Model Quota" panel data; generic antigravityRPC helper; GetUserStatus for account/plan/credits + summary for quota | AgentHealth.swift, SelfTests.swift | 23 self-tests; live screenshot matches IDE (Gemini wk71/5h83, Claude-GPT wk80/5h100) | ~ |
 | 01:36 | Edited Sources/Trinity/AgentHealth.swift | expanded (+7 lines) | ~171 |
 | 01:43 | Installed official Antigravity CLI via antigravity.google/cli/install.sh | ~/.local/bin/agy, shell profiles | agy --version = 1.0.9, debug/release Trinity self-tests 23 passed | ~ |
+| 01:55 | Fixed core orchestration blockers: Agy flags, main-branch preflight, no per-iteration commits, reviewer full diff from base | AgentRunner.swift, GitService.swift, RunManager.swift, SelfTests.swift | swift build pass, debug self-tests 23 passed, packaged self-tests 24 passed | ~ |
+| 01:57 | Strengthened planner/implementer prompts: plans must be split into small verified parts; implementer verifies each part before moving on | Prompts.swift, SelfTests.swift | swift build pass, debug self-tests 24 passed, packaged self-tests 25 passed | ~ |
+| 02:18 | Implemented strict per-part orchestration: parse executable plan parts, implement one part only, require reviewer approval per part, then run final full-plan review | Models.swift, Prompts.swift, RunManager.swift, VerdictParser.swift, SelfTests.swift | swift build pass, debug self-tests 28 passed, packaged self-tests 28 passed | ~ |
+| 02:24 | Tightened reviewer prompts: reviewer must distrust implementer claims, inspect every changed file, and block side effects/regressions/unrelated edits | Prompts.swift, SelfTests.swift | swift build pass, debug self-tests 28 passed, JSON lint pass, packaged self-tests 28 passed | ~ |
+| 02:34 | Fixed run activity UI not visibly updating: RunSummaryBar and LiveActivityGroup now observe RunManager directly instead of only AppState.currentRun | ContentView.swift | swift build pass, debug self-tests 28 passed, JSON lint pass, packaged self-tests 28 passed | ~ |
+| 02:47 | Added single-instance app guard: normal launches activate the existing Trinity instance and exit; --self-test remains allowed | TrinityApp.swift | swift build pass, debug self-tests 28 passed, packaged self-tests 28 passed, second direct launch exits 0 | ~ |
+| 18:18 | Fixed Codex quota source: prefer live chatgpt.com wham usage endpoint over stale local session snapshots; parse primary_window/secondary_window schema | AgentHealth.swift, SelfTests.swift | swift build pass, swift run self-tests 29 passed, packaged self-tests 29 passed, live endpoint matches UI 90/98 | ~ |
+
+## Session: 2026-06-18 07:27
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+
+## Session: 2026-06-18 07:29
+
+| Time | Action | File(s) | Outcome | ~Tokens |
+|------|--------|---------|---------|--------|
+| 07:32 | Edited Sources/Trinity/AgentHealth.swift | 5→6 lines | ~97 |
+| 07:32 | Edited Sources/Trinity/AgentHealth.swift | 9→14 lines | ~196 |
+| 07:32 | Edited Sources/Trinity/AgentHealth.swift | 8→12 lines | ~183 |
+| 07:38 | Edited Sources/Trinity/AgentHealth.swift | modified refreshClaudeToken() | ~137 |
+| 07:39 | Edited Sources/Trinity/ContentView.swift | 9→10 lines | ~112 |

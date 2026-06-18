@@ -238,5 +238,53 @@
     "related_bugs": ["bug-015"],
     "occurrences": 1,
     "last_seen": "2026-06-18T01:12:49+0700"
+  },
+  {
+    "id": "bug-021",
+    "timestamp": "2026-06-18T01:55:12+0700",
+    "error_message": "Core planner -> implementer -> reviewer loop was not runnable enough: Agy flags were invalid, main branch preflight blocked branch creation, and reviewer did not see full accumulated changes",
+    "file": "Sources/Trinity/AgentRunner.swift, Sources/Trinity/GitService.swift, Sources/Trinity/RunManager.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "The Agy command builder used obsolete flags (`--yes`, `--output-format`) unsupported by agy 1.0.9. Git preflight rejected main/master before Trinity could create its working branch. RunManager checkpointed each iteration, so reviewer diff could exclude previous iteration changes after commits.",
+    "fix": "Use `--dangerously-skip-permissions` for Agy and rely on prompt-only JSON for reviewer. Allow preflight on main/master and create a Trinity branch from current HEAD. Remove checkpoint commits from the run loop and review full diff from the original base ref including committed, staged, and working-tree changes.",
+    "tags": ["swift", "orchestration", "agy", "git", "review-loop"],
+    "related_bugs": [],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T01:55:12+0700"
+  },
+  {
+    "id": "bug-022",
+    "timestamp": "2026-06-18T02:18:00+0700",
+    "error_message": "Workflow still let the implementer work through the whole plan before reviewer gating; user clarified reviewer must approve each small task before moving to the next one",
+    "file": "Sources/Trinity/Models.swift, Sources/Trinity/Prompts.swift, Sources/Trinity/RunManager.swift, Sources/Trinity/VerdictParser.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "The app only strengthened prompts for small verified parts, but RunManager still executed a whole-plan implement/review iteration. That could allow later tasks to start before reviewer approval of the current small task.",
+    "fix": "Added executable plan models and parser, required planner JSON parts, changed RunManager to run implementer and reviewer per PlanPart with max attempts per part, blocked next part until approval, and added a final full-plan reviewer pass. Implementer prompt now forbids commits/push/stash/reset.",
+    "tags": ["swift", "orchestration", "planner", "implementer", "reviewer", "quality-gate"],
+    "related_bugs": ["bug-021"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:18:00+0700"
+  },
+  {
+    "id": "bug-023",
+    "timestamp": "2026-06-18T02:34:00+0700",
+    "error_message": "User ran a test task in the app but saw no visible activity",
+    "file": "Sources/Trinity/ContentView.swift",
+    "root_cause": "Workbench views read AppState.currentRun, a computed property that looks inside RunManager.runs. SwiftUI observed AppState but not RunManager for those views, so RunManager history/state changes could fail to redraw the activity feed.",
+    "fix": "Made RunSummaryBar and LiveActivityGroup observe RunManager directly and resolve the current run from runId, so @Published RunManager.runs changes redraw the UI.",
+    "tags": ["swiftui", "ui", "run-history", "observableobject", "activity-feed"],
+    "related_bugs": ["bug-022"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T02:34:00+0700"
+  },
+  {
+    "id": "bug-024",
+    "timestamp": "2026-06-18T18:18:00+0700",
+    "error_message": "Codex quota in the sidebar was wrong",
+    "file": "Sources/Trinity/AgentHealth.swift, Sources/Trinity/SelfTests.swift",
+    "root_cause": "Codex quota used local session JSONL snapshots as the primary source. Those snapshots can be stale or reflect a different recent rollout/account; the live ChatGPT usage endpoint uses a different schema (`rate_limit.primary_window/secondary_window`) and is the authoritative current quota.",
+    "fix": "Added Codex live quota polling via `https://chatgpt.com/backend-api/wham/usage` using the local Codex access token, parse `limit_window_seconds`, `used_percent`, and `reset_at`, and keep session snapshots only as fallback. Added a self-test for the live `wham/usage` schema.",
+    "tags": ["swift", "codex", "quota", "live-usage", "wham", "sidebar"],
+    "related_bugs": ["bug-009", "bug-015", "bug-020"],
+    "occurrences": 1,
+    "last_seen": "2026-06-18T18:18:00+0700"
   }
 ]

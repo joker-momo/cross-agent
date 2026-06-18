@@ -93,6 +93,30 @@ struct RunEvent: Identifiable, Codable, Equatable {
     var iteration: Int?
 }
 
+struct PlanPart: Codable, Equatable, Identifiable {
+    var id: String
+    var title: String
+    var scope: String
+    var files: [String]
+    var steps: [String]
+    var verification: [String]
+    var passCriteria: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case scope
+        case files
+        case steps
+        case verification
+        case passCriteria = "pass_criteria"
+    }
+}
+
+struct ExecutionPlan: Codable, Equatable {
+    var parts: [PlanPart]
+}
+
 struct Verdict: Codable, Equatable {
     var approved: Bool
     var blockingIssues: [String]

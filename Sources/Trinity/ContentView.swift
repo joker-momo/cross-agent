@@ -182,7 +182,7 @@ private struct WorkbenchView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     RequestGroup(state: state)
                     ConfigurationGroup(state: state)
-                    LiveActivityGroup(run: state.currentRun)
+                    LiveActivityGroup(runManager: state.runManager, runId: state.runId)
                 }
                 .padding(20)
                 .frame(maxWidth: 980, alignment: .topLeading)
@@ -311,13 +311,14 @@ private struct AgentStatusRow: View {
     }
 
     private var actionTitle: String {
-        if status?.status == "auth" { return "Connect" }
+        if status?.status == "auth" { return "Sign in" }
         if agent == .agy { return "Open" }
         return accountText == "Unknown account" ? "Connect" : "Switch"
     }
 
     private var actionHelp: String {
-        agent == .agy ? "Open Antigravity" : "Change account"
+        if status?.status == "auth" { return "Sign in to refresh the token and live quota" }
+        return agent == .agy ? "Open Antigravity" : "Change account"
     }
 
     private var accountText: String {
@@ -585,12 +586,18 @@ private struct QuotaItem: Identifiable {
 
 private struct RunSummaryBar: View {
     @ObservedObject var state: AppState
+    @ObservedObject private var runManager: RunManager
+
+    init(state: AppState) {
+        self.state = state
+        self.runManager = state.runManager
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             PhaseBadge(phase: state.phase)
 
-            if let run = state.currentRun {
+            if let run = currentRun {
                 Label("Iteration \(run.iteration)", systemImage: "arrow.triangle.2.circlepath")
                 if let branch = run.branch, !branch.isEmpty {
                     Label(branch, systemImage: "arrow.branch")
@@ -615,6 +622,11 @@ private struct RunSummaryBar: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var currentRun: RunRecord? {
+        guard let runId = state.runId else { return nil }
+        return runManager.runs.first(where: { $0.runId == runId })
     }
 }
 
@@ -757,7 +769,13 @@ private struct RolePicker: View {
 }
 
 private struct LiveActivityGroup: View {
-    var run: RunRecord?
+    @ObservedObject var runManager: RunManager
+    var runId: String?
+
+    private var run: RunRecord? {
+        guard let runId else { return nil }
+        return runManager.runs.first(where: { $0.runId == runId })
+    }
 
     var body: some View {
         LabeledCard(title: "Live Activity", systemImage: "list.bullet.rectangle") {

@@ -2,15 +2,12 @@ import Foundation
 
 enum GitGuardError: LocalizedError, Equatable {
     case notRepository(String)
-    case protectedBranch(String)
     case commandFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .notRepository(let path):
             return "\(path) is not a git repository"
-        case .protectedBranch(let branch):
-            return "refusing to run on protected branch '\(branch)'"
         case .commandFailed(let message):
             return message
         }
@@ -19,7 +16,6 @@ enum GitGuardError: LocalizedError, Equatable {
 
 final class GitService: @unchecked Sendable {
     private let shell: ShellRunning
-    private let protectedBranches = Set(["main", "master"])
 
     init(shell: ShellRunning = Shell()) {
         self.shell = shell
@@ -30,14 +26,16 @@ final class GitService: @unchecked Sendable {
         guard inside.ok, inside.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
             throw GitGuardError.notRepository(cwd.path)
         }
-        let branch = try await currentBranch(cwd: cwd)
-        if protectedBranches.contains(branch) {
-            throw GitGuardError.protectedBranch(branch)
-        }
     }
 
     func currentBranch(cwd: URL) async throws -> String {
         let result = try await git(cwd: cwd, "rev-parse", "--abbrev-ref", "HEAD")
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func currentHead(cwd: URL) async throws -> String {
+        let result = try await git(cwd: cwd, "rev-parse", "HEAD")
+        if !result.ok { throw GitGuardError.commandFailed("rev-parse HEAD failed: \(result.stderr)") }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -81,6 +79,15 @@ final class GitService: @unchecked Sendable {
 
     func diff(cwd: URL) async throws -> String {
         try await git(cwd: cwd, "diff").stdout
+    }
+
+    func diff(cwd: URL, from base: String) async throws -> String {
+        let committed = try await git(cwd: cwd, "diff", "\(base)...HEAD").stdout
+        let workingTree = try await git(cwd: cwd, "diff", "HEAD").stdout
+        let staged = try await git(cwd: cwd, "diff", "--cached").stdout
+        return [committed, staged, workingTree]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
     }
 
     func slugify(_ text: String, maxLength: Int = 40) -> String {

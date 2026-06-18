@@ -58,3 +58,32 @@ enum VerdictParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+enum PlanParserError: LocalizedError, Equatable {
+    case noParts
+    case invalidJSON(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noParts:
+            return "plan has no executable parts"
+        case .invalidJSON(let message):
+            return "invalid plan JSON: \(message)"
+        }
+    }
+}
+
+enum PlanParser {
+    static func parse(_ raw: String) throws -> ExecutionPlan {
+        let candidate = try VerdictParser.extractJSON(raw)
+        do {
+            let plan = try JSONDecoder().decode(ExecutionPlan.self, from: Data(candidate.utf8))
+            guard !plan.parts.isEmpty else { throw PlanParserError.noParts }
+            return plan
+        } catch let error as PlanParserError {
+            throw error
+        } catch {
+            throw PlanParserError.invalidJSON(error.localizedDescription)
+        }
+    }
+}
