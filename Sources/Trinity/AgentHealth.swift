@@ -547,9 +547,16 @@ final class AgentHealthService: @unchecked Sendable {
         if Self.usageCooldown.active(configDir.path) { return .unavailable }
 
         var token = creds.accessToken
-        if creds.isExpired, let refreshToken = creds.refreshToken,
-           let fresh = await refreshClaudeToken(refreshToken) {
-            token = fresh
+        if creds.isExpired {
+            // Try to refresh; if that fails the stored token is dead — report
+            // .expired so the UI offers a re-auth button (no point calling the
+            // endpoint with a token we know is rejected).
+            if let refreshToken = creds.refreshToken,
+               let fresh = await refreshClaudeToken(refreshToken) {
+                token = fresh
+            } else {
+                return .expired
+            }
         }
 
         let version = await claudeVersion()

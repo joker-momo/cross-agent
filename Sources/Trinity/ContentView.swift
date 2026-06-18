@@ -311,13 +311,14 @@ private struct AgentStatusRow: View {
     }
 
     private var actionTitle: String {
-        if status?.status == "auth" { return "Connect" }
+        if status?.status == "auth" { return "Sign in" }
         if agent == .agy { return "Open" }
         return accountText == "Unknown account" ? "Connect" : "Switch"
     }
 
     private var actionHelp: String {
-        agent == .agy ? "Open Antigravity" : "Change account"
+        if status?.status == "auth" { return "Sign in to refresh the token and live quota" }
+        return agent == .agy ? "Open Antigravity" : "Change account"
     }
 
     private var accountText: String {
